@@ -63,19 +63,21 @@ DATABASE_HOST=localhost
 DATABASE_PORT=5432
 ```
 
-On macOS the GDAL/GEOS fallback paths in `settings.py` point to
-`/opt/homebrew/lib/`. If your Homebrew prefix differs, override them:
+On Linux the system GDAL/GEOS libraries are found automatically — no env
+vars needed.
+
+On macOS (Homebrew) Django cannot auto-detect the library paths, so you must
+set them explicitly.  Find the right paths with `brew --prefix gdal` /
+`brew --prefix geos`, then add to your `.env`:
 
 ```dotenv
-GDAL_LIBRARY_PATH=/usr/local/lib/libgdal.dylib
-GEOS_LIBRARY_PATH=/usr/local/lib/libgeos_c.dylib
-```
+# Apple Silicon (default Homebrew prefix)
+GDAL_LIBRARY_PATH=/opt/homebrew/lib/libgdal.dylib
+GEOS_LIBRARY_PATH=/opt/homebrew/lib/libgeos_c.dylib
 
-On Linux (e.g. Ubuntu) the typical paths are:
-
-```dotenv
-GDAL_LIBRARY_PATH=/usr/lib/libgdal.so
-GEOS_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/libgeos_c.so.1
+# Intel Macs (older Homebrew prefix)
+# GDAL_LIBRARY_PATH=/usr/local/lib/libgdal.dylib
+# GEOS_LIBRARY_PATH=/usr/local/lib/libgeos_c.dylib
 ```
 
 ### 4. Run migrations

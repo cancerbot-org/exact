@@ -150,8 +150,12 @@ CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 # ---------------------------------------------------------------------------
 # PostGIS / GeoPos
 # ---------------------------------------------------------------------------
-GDAL_LIBRARY_PATH = os.environ.get('GDAL_LIBRARY_PATH') or '/opt/homebrew/lib/libgdal.dylib'
-GEOS_LIBRARY_PATH = os.environ.get('GEOS_LIBRARY_PATH') or '/opt/homebrew/lib/libgeos_c.dylib'
+# On Linux the system GDAL/GEOS libs are found automatically; only override
+# when explicitly provided (e.g. macOS Homebrew installs).
+if _gdal := os.environ.get('GDAL_LIBRARY_PATH'):
+    GDAL_LIBRARY_PATH = _gdal
+if _geos := os.environ.get('GEOS_LIBRARY_PATH'):
+    GEOS_LIBRARY_PATH = _geos
 
 # ---------------------------------------------------------------------------
 # Search traces (debug)
