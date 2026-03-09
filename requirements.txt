@@ -26,6 +26,9 @@ redis==6.4.0
 # Units / quantity conversion
 django-pint==1.0.4
 
+# API schema
+coreapi==2.3.3
+
 # Utilities
 django-countries==8.2.0
 glom==24.11.0
