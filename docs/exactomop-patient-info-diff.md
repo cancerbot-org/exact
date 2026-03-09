@@ -5,66 +5,35 @@ Comparison of `PatientInfo` models between the two repos to evaluate DB-level in
 - **exact**: `trials/models.py` — standalone model, auto PK, no FK to user/person
 - **exactomop**: `omop/models.py` — `person = OneToOneField(Person)`, coupled to OMOP CDM
 
-## Database Engine Difference
+## Schema Alignment Status
+
+**Aligned** as of migration `0002_align_patient_info_with_exact`. All fields, types, and
+defaults now match between the two projects, except for the remaining differences below.
+
+Run `backfill_patient_info_fields` in exactomop after migrating to populate new fields
+from existing data (`external_id`, `languages_skills`, `supportive_therapies` JSON conversion).
+
+## Remaining Differences
+
+### Database Engine
 
 - **exact**: PostGIS (`django.contrib.gis.db.backends.postgis`) — required for `geo_point` PointField
 - **exactomop**: plain PostgreSQL or SQLite — no GIS support
 
-## Missing from exactomop
+### exact-only field
 
-### CLL-specific fields (entire block — 22 fields)
+- `geo_point` — PointField (PostGIS), geospatial matching. Computed by `normalize_patient_info` from lat/lon/country. Not added to exactomop (requires PostGIS).
 
-- `binet_stage`
-- `protein_expressions`
-- `richter_transformation`
-- `tumor_burden`
-- `lymphocyte_doubling_time`
-- `tp53_disruption`
-- `measurable_disease_iwcll`
-- `hepatomegaly`
-- `autoimmune_cytopenias_refractory_to_steroids`
-- `lymphadenopathy`
-- `largest_lymph_node_size`
-- `splenomegaly`
-- `spleen_size`
-- `disease_activity`
-- `btk_inhibitor_refractory`
-- `bcl2_inhibitor_refractory`
-- `absolute_lymphocyte_count`
-- `qtcf_value`
-- `serum_beta2_microglobulin_level`
-- `clonal_bone_marrow_b_lymphocytes`
-- `clonal_b_lymphocyte_count`
-- `bone_marrow_involvement`
-
-### Other missing fields
-
-- `external_id` — CharField(255), external system link
-- `status` — TextField, patient status
-- `geo_point` — PointField (PostGIS), geospatial matching
-- `measurable_disease_imwg` — BooleanField, myeloma measurable disease
-- `old_supportive_therapies` — TextField, legacy field
-- `later_therapies` — JSONField(default=list), multiple later therapy lines
-
-## Field Type Mismatches
-
-| Field | exact | exactomop |
-|-------|-------|-----------|
-| `supportive_therapies` | `JSONField(default=list)` | `TextField` |
-| `later_therapies` | `JSONField(default=list)` | **missing** (only `later_therapy` TextField) |
-| `bone_only_metastasis_status` | `BooleanField(default=False)` non-nullable | `BooleanField` nullable |
-| `metastatic_status` | `BooleanField(default=False)` non-nullable | `BooleanField` nullable |
-| `measurable_disease_by_recist_status` | `BooleanField(default=False)` non-nullable | `BooleanField` nullable |
-| `renal_adequacy_status` | `BooleanField(default=False)` non-nullable | `BooleanField` nullable |
-| `plasma_cell_leukemia` | default=**False** | default=**True** (wrong default) |
-
-## Field Name Differences
+### Field Name Difference
 
 | exact | exactomop |
 |-------|-----------|
-| `languages_skills` (single TextField) | `languages` + `language_skill_level` (two fields) |
+| `languages_skills` (single TextField) | `languages` + `language_skill_level` (two fields) + `languages_skills` (combined) |
 
-## Extra Fields in exactomop (not in exact)
+exactomop now has all three fields. The `languages_skills` field is backfilled by
+`backfill_patient_info_fields` from the existing `languages` + `language_skill_level`.
+
+### Extra Fields in exactomop (not in exact)
 
 - `person` — OneToOneField to OMOP Person
 - `condition_code_icd_10` — TextField, ICD-10 code
@@ -81,8 +50,6 @@ Comparison of `PatientInfo` models between the two repos to evaluate DB-level in
 
 ## Integration Options
 
-1. **Align exactomop → exact schema**: Add missing fields to exactomop, fix types, upgrade to PostGIS. Then point exact's `PATIENT_DB_URL` at the exactomop database. exact already has `PatientInfoRouter` for this.
+1. **Align exactomop → exact schema** (done): Added missing fields to exactomop, fixed types. To complete: upgrade to PostGIS for `geo_point`, then point exact's `PATIENT_DB_URL` at the exactomop database via `PatientInfoRouter`.
 
-2. **Sync/ETL layer**: Keep schemas as-is. Build a service that transforms exactomop records into exact format (copy + map fields). Simpler but not real-time.
-
-3. **DB view / foreign data wrapper**: Use PostgreSQL FDW to expose exactomop patient data to exact's database. Flexible but complex setup.
+2. **ETL layer** (done): `exact/trials/management/commands/load_patient_info_from_omop.py` reads from exactomop and creates/updates PatientInfo records in exact. See [load-patient-info-from-omop.md](load-patient-info-from-omop.md).

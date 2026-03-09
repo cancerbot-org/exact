@@ -2,12 +2,37 @@ from pathlib import Path
 import os
 import ssl
 import logging
+import platform
 from dotenv import load_dotenv
 
 _logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 ENVIRONMENT = os.environ.get('ENVIRONMENT', 'local')
+
+# GDAL / GEOS — required by django.contrib.gis (PostGIS backend).
+# On macOS with Homebrew the libraries are not on the default search path,
+# so we resolve them here if they haven't been set in the environment already.
+if platform.system() == 'Darwin':
+    import subprocess
+
+    def _brew_prefix(pkg):
+        try:
+            return subprocess.check_output(
+                ['brew', '--prefix', pkg], stderr=subprocess.DEVNULL
+            ).decode().strip()
+        except Exception:
+            return ''
+
+    if not os.environ.get('GDAL_LIBRARY_PATH'):
+        _gdal_prefix = _brew_prefix('gdal')
+        if _gdal_prefix:
+            GDAL_LIBRARY_PATH = os.path.join(_gdal_prefix, 'lib', 'libgdal.dylib')
+
+    if not os.environ.get('GEOS_LIBRARY_PATH'):
+        _geos_prefix = _brew_prefix('geos')
+        if _geos_prefix:
+            GEOS_LIBRARY_PATH = os.path.join(_geos_prefix, 'lib', 'libgeos_c.dylib')
 
 load_dotenv(os.path.join(BASE_DIR, '.env'))
 

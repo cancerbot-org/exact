@@ -60,10 +60,16 @@ Fields that are nullable in exactomop but non-nullable in exact are coalesced to
 
 | Field | Default |
 |---|---|
-| `later_therapies` | `[]` |
-| 22 CLL-specific fields | `None` |
+| `later_therapies` | `[]` — now populated by exactomop's `migrate_omop_to_patientinfo` (lines 3+) |
+| 22 CLL-specific fields | `None` — now populated by exactomop's `migrate_omop_to_patientinfo` for CLL patients |
 | `geo_point` | Computed by `normalize_patient_info` from country/postal_code or lat/lon |
 | `measurable_disease_imwg` | Computed by `normalize_patient_info` |
+
+> **Note:** Since the exactomop schema was aligned with exact (migration `0002`), all 22 CLL fields,
+> `later_therapies`, `external_id`, `languages_skills`, and `measurable_disease_imwg` are now
+> present in the `patient_info` table on the exactomop side and will be copied directly by name.
+> The "defaulting to empty" behaviour above applies only when reading from an older exactomop
+> instance that has not yet been migrated.
 
 ### Ignored source columns
 

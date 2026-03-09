@@ -95,7 +95,20 @@ class TrailsViewSet(viewsets.ReadOnlyModelViewSet):
             )
 
         if self.action in ['list', 'search', 'retrieve']:
-            queryset = queryset.with_goodness_score_optimized()
+            params = self.request.query_params
+            try:
+                benefit_weight = float(params.get('benefitWeight', 25.0))
+                patient_burden_weight = float(params.get('patientBurdenWeight', 25.0))
+                risk_weight = float(params.get('riskWeight', 25.0))
+                distance_penalty_weight = float(params.get('distancePenaltyWeight', 25.0))
+            except (TypeError, ValueError):
+                benefit_weight = patient_burden_weight = risk_weight = distance_penalty_weight = 25.0
+            queryset = queryset.with_goodness_score_optimized(
+                benefit_weight=benefit_weight,
+                patient_burden_weight=patient_burden_weight,
+                risk_weight=risk_weight,
+                distance_penalty_weight=distance_penalty_weight,
+            )
 
         if self.action == 'retrieve':
             queryset = queryset.with_distance_optimized(
