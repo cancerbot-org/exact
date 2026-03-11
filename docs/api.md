@@ -14,156 +14,114 @@ JSON payloads and responses use **camelCase** keys (converted by
 
 ---
 
-## Patient info
+## Patient context
 
-### Resolve patient context
-
-Every trial-search endpoint needs a patient profile. There are two ways to
-provide it — you can use either for any request:
-
-| Mode | How |
-|------|-----|
-| **Stateful** | Add `?patient_info_id=<id>` to the query string |
-| **Stateless** | Include `"patientInfo": {...}` in the request body |
-
-The stateless mode never writes to the database. It builds an in-memory
-`PatientInfo` from the JSON, runs normalization (computes BMI, geo_point, derived
-statuses, etc.), and discards it at the end of the request.
-
----
-
-### `POST /patient-info/`
-
-Create a new patient profile. Returns the created object with all computed fields.
-
-**Request body** (all fields optional unless noted):
+Every trial-search endpoint accepts an optional patient profile supplied
+**inline in the request body**. Patient data is never stored — it is built
+in-memory, normalized, used for matching, and discarded at the end of the
+request.
 
 ```json
 {
-  "externalId": "string",
-  "patientAge": 55,
-  "gender": "M | F | UN",
-  "weight": 75,
-  "weightUnits": "kg | lbs",
-  "height": 175,
-  "heightUnits": "cm | inch",
-  "disease": "multiple myeloma | follicular lymphoma | breast cancer | chronic lymphocytic leukemia",
-  "country": "US",
-  "postalCode": "10001",
-  "longitude": -74.006,
-  "latitude": 40.7128,
-  "geolocation": { "longitude": -74.006, "latitude": 40.7128 },
+  "patientInfo": {
+    "disease": "multiple myeloma | follicular lymphoma | breast cancer | chronic lymphocytic leukemia",
+    "patientAge": 55,
+    "gender": "M | F | UN",
+    "weight": 75,
+    "weightUnits": "kg | lbs",
+    "height": 175,
+    "heightUnits": "cm | inch",
+    "country": "US",
+    "postalCode": "10001",
+    "longitude": -74.006,
+    "latitude": 40.7128,
 
-  "priorTherapy": "None | One line | Two lines | More than two lines of therapy",
-  "firstLineTherapy": "vrd",
-  "firstLineDate": "2022-03-01",
-  "firstLineOutcome": "CR | PR | SD | MRD | PD",
-  "secondLineTherapy": "kd",
-  "secondLineDate": "2023-01-15",
-  "secondLineOutcome": "CR | PR | SD | MRD | PD",
-  "laterTherapy": "isa-kd",
-  "laterDate": "2024-06-01",
-  "laterOutcome": "CR | PR | SD | MRD | PD",
-  "laterTherapies": [],
+    "priorTherapy": "None | One line | Two lines | More than two lines of therapy",
+    "firstLineTherapy": "vrd",
+    "firstLineDate": "2022-03-01",
+    "firstLineOutcome": "CR | PR | SD | MRD | PD",
+    "secondLineTherapy": "kd",
+    "secondLineDate": "2023-01-15",
+    "secondLineOutcome": "CR | PR | SD | MRD | PD",
+    "laterTherapy": "isa-kd",
+    "laterDate": "2024-06-01",
+    "laterOutcome": "CR | PR | SD | MRD | PD",
+    "laterTherapies": [],
 
-  "stage": "I | II | III | IV",
-  "karnofskyPerformanceScore": 80,
-  "ecogPerformanceStatus": 1,
+    "stage": "I | II | III | IV",
+    "karnofskyPerformanceScore": 80,
+    "ecogPerformanceStatus": 1,
 
-  "preExistingConditionCategories": ["cardiacIssues", "pulmonaryDisease"],
+    "preExistingConditionCategories": ["cardiacIssues", "pulmonaryDisease"],
 
-  "hemoglobinLevel": 10.5,
-  "plateletCount": 150,
-  "whiteBloodCellCount": 4.5,
-  "serumCreatinineLevel": 1.0,
-  "estimatedGlomerularFiltrationRate": 60,
-  "liverEnzymeLevelsAlt": 30,
-  "liverEnzymeLevelsAst": 25,
-  "liverEnzymeLevelsAlp": 80,
-  "albuminLevel": 3.5,
-  "serumBilirubinLevelTotal": 0.8,
-  "serumBilirubinLevelDirect": 0.2,
-  "serumCalciumLevel": 9.5,
-  "monoclonalProteinSerum": 1.5,
-  "monoclonalProteinUrine": 200,
-  "lactateDehydrogenaseLevel": 250,
+    "hemoglobinLevel": 10.5,
+    "plateletCount": 150,
+    "whiteBloodCellCount": 4.5,
+    "serumCreatinineLevel": 1.0,
+    "estimatedGlomerularFiltrationRate": 60,
+    "liverEnzymeLevelsAlt": 30,
+    "liverEnzymeLevelsAst": 25,
+    "liverEnzymeLevelsAlp": 80,
+    "albuminLevel": 3.5,
+    "serumBilirubinLevelTotal": 0.8,
+    "serumBilirubinLevelDirect": 0.2,
+    "serumCalciumLevel": 9.5,
+    "monoclonalProteinSerum": 1.5,
+    "monoclonalProteinUrine": 200,
+    "lactateDehydrogenaseLevel": 250,
 
-  "geneticMutations": [
-    {
-      "gene": "tp53",
-      "variant": "c.817C>T",
-      "origin": "somatic",
-      "interpretation": "pathogenic"
-    }
-  ],
+    "geneticMutations": [
+      {
+        "gene": "tp53",
+        "variant": "c.817C>T",
+        "origin": "somatic",
+        "interpretation": "pathogenic"
+      }
+    ],
 
-  "stemCellTransplantHistory": "None | completedASCT | eligibleForASCT | ineligibleForASCT | completedAllogeneicSCT | preASCT | postASCT | neverReceivedSCT | sctIneligible | relapsedPostASCT | relapsedPostAllogeneicSCT | completedTandemSCT",
-  "plasmaCellLeukemia": false,
+    "stemCellTransplantHistory": "None | completedASCT | eligibleForASCT | ineligibleForASCT | completedAllogeneicSCT | preASCT | postASCT | neverReceivedSCT | sctIneligible | relapsedPostASCT | relapsedPostAllogeneicSCT | completedTandemSCT",
+    "plasmaCellLeukemia": false,
 
-  "estrogenReceptorStatus": "er_plus | er_plus_with_hi_exp | er_plus_with_low_exp | er_minus",
-  "progesteroneReceptorStatus": "pr_plus | pr_plus_with_hi_exp | pr_plus_with_low_exp | pr_minus",
-  "her2Status": "her2_plus | her2_minus",
-  "menopausalStatus": "pre | post",
-  "tumorStage": "string",
-  "pdL1TumorCells": 50,
+    "estrogenReceptorStatus": "er_plus | er_plus_with_hi_exp | er_plus_with_low_exp | er_minus",
+    "progesteroneReceptorStatus": "pr_plus | pr_plus_with_hi_exp | pr_plus_with_low_exp | pr_minus",
+    "her2Status": "her2_plus | her2_minus",
+    "menopausalStatus": "pre | post",
+    "tumorStage": "string",
+    "pdL1TumorCells": 50,
 
-  "binetStage": "A | B | C",
-  "treatmentRefractoryStatus": "notRefractory | primaryRefractory | secondaryRefractory | multiRefractory"
+    "binetStage": "A | B | C",
+    "treatmentRefractoryStatus": "notRefractory | primaryRefractory | secondaryRefractory | multiRefractory"
+  }
 }
 ```
 
-**Response** `201 Created`: Full `PatientInfo` object with computed fields
-(`bmi`, `geo_point`, `tnbcStatus`, `hrStatus`, `treatmentRefractoryStatus`,
-etc.).
+Normalization runs automatically: BMI, `geo_point`, FLIPI score, TNBC/HR
+status, treatment refractory status, and other derived fields are computed
+from the supplied values.
 
 ---
 
-### `GET /patient-info/`
+## Study preferences
 
-List patient profiles. Optional filter:
+Search/filter preferences are passed as **query parameters** on every
+trial-search request.
 
-| Query param | Description |
-|---|---|
-| `external_id` | Filter by `externalId` |
-
----
-
-### `GET /patient-info/{id}/`
-
-Retrieve a single patient profile by primary key.
-
----
-
-### `PATCH /patient-info/{id}/`
-
-Partial update. Same body shape as `POST`. Only supplied fields are updated;
-normalization runs on the full resulting record.
-
----
-
-### `GET /patient-info/{id}/study-info/`
-
-Retrieve saved search preferences for this patient.
-
-**Response:**
-```json
-{
-  "searchTitle": "My Search",
-  "searchDisease": "multiple myeloma",
-  "sponsor": "",
-  "recruitmentStatus": "RECRUITING",
-  "country": "US",
-  "distance": 100,
-  "distanceUnits": "miles",
-  "trialType": ""
-}
-```
-
----
-
-### `PATCH /patient-info/{id}/study-info/`
-
-Update saved search preferences. All fields are optional.
+| Param | Type | Description |
+|---|---|---|
+| `searchTitle` | string | Full-text search on trial title |
+| `recruitmentStatus` | string | Filter by recruitment status (e.g. `RECRUITING`) |
+| `sponsor` | string | Filter by sponsor name |
+| `register` | string | Filter by trial register (e.g. `clinicaltrials.gov`) |
+| `trialType` | string | Filter by trial-type code |
+| `validatedOnly` | boolean | Only return manually validated trials |
+| `distance` | number | Maximum distance from patient location |
+| `distanceUnits` | `km` \| `miles` | Units for `distance` (default `km`) |
+| `country` | string | Filter by country code |
+| `region` | string | Filter by region |
+| `postalCode` | string | Override postal code for distance calculation |
+| `studyId` | string | Filter by study ID (e.g. NCT number) |
+| `lastUpdate` | date | Filter trials updated after this date |
+| `firstEnrolment` | date | Filter trials with first enrolment after this date |
 
 ---
 
@@ -173,7 +131,7 @@ Update saved search preferences. All fields are optional.
 
 List trials ordered by match score descending.
 
-**Patient context**: required via `?patient_info_id=` or `"patientInfo"` body.
+**Patient context**: optional — include `"patientInfo": {...}` in the request body.
 
 **Query params:**
 
@@ -225,7 +183,7 @@ List trials ordered by match score descending.
 
 Extended search endpoint with sorting and filtering.
 
-**Patient context**: required.
+**Patient context**: optional — include `"patientInfo": {...}` in the request body.
 
 **Query params:**
 
@@ -242,7 +200,7 @@ Extended search endpoint with sorting and filtering.
 
 Returns the count of matched trials without fetching full records.
 
-**Patient context**: required.
+**Patient context**: optional — include `"patientInfo": {...}` in the request body.
 
 **Response:**
 ```json
@@ -256,7 +214,7 @@ Returns the count of matched trials without fetching full records.
 Retrieve full trial details including all eligibility attributes grouped for
 display, with per-attribute patient match status.
 
-**Patient context**: required.
+**Patient context**: optional — include `"patientInfo": {...}` in the request body.
 
 **Response:** Full trial object including `trialEligibilityAttributes` grouped
 by category, each with the trial's value, the patient's current value, and the
@@ -271,7 +229,7 @@ match status (`matched`, `unknown`, or `not_matched`).
 Returns a compact graph-structured response optimised for visual dependency
 views.
 
-**Patient context**: required.
+**Patient context**: optional — include `"patientInfo": {...}` in the request body.
 
 **Query params:**
 
@@ -382,7 +340,7 @@ Default page size is 200. Override with `?page_size=<n>`.
 
 | Status | When |
 |---|---|
-| `400 Bad Request` | Validation error or missing required `patient_info_id` / `patientInfo` body |
+| `400 Bad Request` | Validation error in request body or query params |
 | `401 Unauthorized` | Missing or invalid auth token |
 | `404 Not Found` | Record not found |
 | `500 Internal Server Error` | Unexpected server error |

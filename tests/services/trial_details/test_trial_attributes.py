@@ -1,13 +1,14 @@
 import pytest
 
 from tests.factories import *
+from trials.models import PatientInfo
 from trials.services.trial_details.trial_attributes import TrialAttributes
 
 
 class TestTrialAttributes:
     @pytest.mark.django_db
     def test_details(self):
-        patient_info = PatientInfoFactory(disease='multiple myeloma')
+        patient_info = PatientInfo(disease='multiple myeloma')
         trial = TrialFactory(hemoglobin_level_min=5, hemoglobin_level_max=15, stem_cell_transplant_history_excluded=['postASCT', 'preASCT'], therapies_required=['vrd'])
 
         res = TrialAttributes(trial, patient_info).details()
@@ -22,14 +23,13 @@ class TestTrialAttributes:
         patient_info.disease='multiple myeloma'
         patient_info.first_line_therapy = 'vrd'
         patient_info.second_line_therapy = 'idelalisib'
-        patient_info.save()
 
         res = TrialAttributes(trial, patient_info=patient_info).therapies(subform_attrs={})
         assert set(res.keys()) == {'therapiesRequired'}
 
     @pytest.mark.django_db
     def test_get_user_details(self, db):
-        patient_info = PatientInfoFactory(disease='multiple myeloma', plasma_cell_leukemia=False, prior_therapy=None, stem_cell_transplant_history=[])
+        patient_info = PatientInfo(disease='multiple myeloma', plasma_cell_leukemia=False, prior_therapy=None, stem_cell_transplant_history=[])
         trial = TrialFactory()
 
         res = TrialAttributes(trial=trial, patient_info=patient_info).get_user_details(subform_attrs={})
@@ -41,14 +41,12 @@ class TestTrialAttributes:
         trial = TrialFactory()
 
         patient_info.gender = 'M'
-        patient_info.save()
 
         assert TrialAttributes(trial=trial, patient_info=patient_info).is_blank('stages', [], None) is True
         assert TrialAttributes(trial=trial, patient_info=patient_info).is_blank('negativePregnancyTestResultRequired', True, None) is True
         assert TrialAttributes(trial=trial, patient_info=patient_info).is_blank('noPregnancyOrLactationRequired', True, None) is True
 
         patient_info.gender = ''
-        patient_info.save()
 
         assert TrialAttributes(trial=trial, patient_info=patient_info).is_blank('negativePregnancyTestResultRequired', True, None) is False
         assert TrialAttributes(trial=trial, patient_info=patient_info).is_blank('noPregnancyOrLactationRequired', True, None) is False

@@ -25,16 +25,11 @@ def get_nested_attribute(instance, path):
 
 
 class TrialAttributes:
-    def __init__(self, trial, patient_info):
-        from trials.models import StudyInfo
-
+    def __init__(self, trial, patient_info, study_preferences=None):
         self._trial = trial
         self._value_options = ValueOptions()
         self._patient_info = patient_info
-        self._study_info = (
-            StudyInfo.objects.filter(patient_info=patient_info).first()
-            if patient_info and patient_info.pk else None
-        )
+        self._study_info = study_preferences
         self._patient_info_attr = PatientInfoAttributes(self._patient_info)
         self._context = self.get_context_from_user()
 

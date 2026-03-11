@@ -1,3 +1,4 @@
+from trials.models import PatientInfo
 import pytest
 
 from trials.services.patient_info.convertors.base_convertor import BaseConvertor

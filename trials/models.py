@@ -950,42 +950,7 @@ class PatientInfo(models.Model):
     bone_marrow_involvement = models.BooleanField(blank=True, null=True)
 
     class Meta:
-        indexes = [
-            GistIndex(fields=['geo_point']),
-        ]
-
-    def save(self, *args, **kwargs):
-        from trials.services.patient_info.patient_info_attributes import PatientInfoAttributes
-        from trials.services.patient_info.genetic_mutations import GeneticMutations
-
-        attributes_service = PatientInfoAttributes(self)
-        attributes_service.cleanup()
-        self.bmi = attributes_service.bmi
-        self.meets_crab = attributes_service.meets_crab
-        self.meets_slim = attributes_service.meets_slim
-        if self.meets_crab is True or self.meets_slim is True:
-            self.progression = 'active'
-        elif self.meets_crab is False and self.meets_slim is False:
-            self.progression = 'smoldering'
-        sct = attributes_service.stem_cell_transplant_history_from_therapy_lines
-        if sct:
-            self.stem_cell_transplant_history = [sct]
-        self.renal_adequacy_status = attributes_service.renal_adequacy_status
-        egfr = EgfrCalculator.call(self)
-        if egfr:
-            self.estimated_glomerular_filtration_rate = egfr
-        self.hr_status = attributes_service.hr_status
-        self.tnbc_status = attributes_service.tnbc_status
-        self.tp53_disruption = attributes_service.tp53_disruption
-        update_fields = kwargs.get('update_fields')
-        if not update_fields or 'treatment_refractory_status' not in update_fields:
-            if self.pk:
-                original = PatientInfo.objects.filter(pk=self.pk).values('treatment_refractory_status').first()
-                if original and original['treatment_refractory_status'] == self.treatment_refractory_status:
-                    self.treatment_refractory_status = attributes_service.treatment_refractory_status
-            else:
-                self.treatment_refractory_status = attributes_service.treatment_refractory_status
-        super().save(*args, **kwargs)
+        managed = False
 
     def __str__(self):
         return f"PatientInfo(id={self.id}, age={self.patient_age}, gender={self.gender})"
@@ -1036,13 +1001,6 @@ class PreExistingConditionCategory(models.Model):
         return self.title
 
 
-class PatientInfoPreExistingConditionCategory(models.Model):
-    patient_info = models.ForeignKey(PatientInfo, on_delete=models.CASCADE,
-                                     related_name='pre_existing_condition_categories', null=False)
-    category = models.ForeignKey(PreExistingConditionCategory, on_delete=models.PROTECT, null=False)
-
-    def __str__(self):
-        return f"{self.patient_info_id} - {self.category_id}"
 
 
 class TrialPreExistingCondition(models.Model):
@@ -1057,28 +1015,6 @@ class TrialPreExistingCondition(models.Model):
         unique_together = ['trial', 'condition']
 
 
-class StudyInfo(models.Model):
-    """Patient's saved search preferences."""
-    patient_info = models.ForeignKey(PatientInfo, on_delete=models.CASCADE,
-                                     related_name='study_info', null=True, blank=True)
-    search_title = models.TextField(blank=True, null=True)
-    search_disease = models.TextField(blank=True, null=True)
-    search_treatment = models.TextField(blank=True, null=True)
-    sponsor = models.CharField(max_length=255, blank=True, null=True)
-    recruitment_status = models.CharField(max_length=255, blank=True, null=True, default='Recruiting')
-    register = models.CharField(max_length=255, blank=True, null=True, default=None)
-    country = models.CharField(max_length=255, blank=True, null=True)
-    region = models.CharField(max_length=255, blank=True, null=True)
-    postal_code = models.CharField(max_length=20, blank=True, null=True)
-    distance = models.FloatField(blank=True, null=True, default=1000)
-    distance_units = models.CharField(max_length=20,
-                                      choices=[('miles', 'Miles'), ('kilometers', 'Kilometers')],
-                                      blank=True, null=True, default='miles')
-    validated_only = models.BooleanField(blank=True, null=True, default=False)
-    trial_type = models.CharField(max_length=255, blank=True, null=True)
-
-    def __str__(self):
-        return f"StudyInfo(patient_info={self.patient_info_id})"
 
 
 # ---------------------------------------------------------------------------

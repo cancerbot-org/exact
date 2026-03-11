@@ -4,8 +4,6 @@ from trials.models import (
     Country,
     Disease,
     Location,
-    PatientInfo,
-    PatientInfoPreExistingConditionCategory,
     PreExistingConditionCategory,
     PreferredCountry,
     State,
@@ -76,15 +74,6 @@ class TrialFactory(factory.django.DjangoModelFactory):
     bone_marrow_involvement_required = False
 
 
-class PatientInfoFactory(factory.django.DjangoModelFactory):
-    class Meta:
-        model = PatientInfo
-
-    prior_therapy = ''
-    plasma_cell_leukemia = True
-    stem_cell_transplant_history = False
-
-
 class PreferredCountryFactory(factory.django.DjangoModelFactory):
     class Meta:
         model = PreferredCountry
@@ -125,7 +114,6 @@ class LocationFactory(factory.django.DjangoModelFactory):
     )
 
 
-
 class TherapyFactory(factory.django.DjangoModelFactory):
     class Meta:
         model = Therapy
@@ -150,18 +138,9 @@ class PreExistingConditionCategoryFactory(factory.django.DjangoModelFactory):
     title = factory.Sequence(lambda n: f'PreExistingConditionCategory # {n}')
 
 
-class PatientInfoPreExistingConditionCategoryFactory(factory.django.DjangoModelFactory):
-    class Meta:
-        model = PatientInfoPreExistingConditionCategory
-
-    category = factory.SubFactory(PreExistingConditionCategoryFactory)
-
-
 class TrialPreExistingConditionFactory(factory.django.DjangoModelFactory):
     class Meta:
         model = TrialPreExistingCondition
 
     trial = factory.SubFactory(TrialFactory)
     category = factory.SubFactory(PreExistingConditionCategoryFactory)
-
-

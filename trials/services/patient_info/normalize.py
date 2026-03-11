@@ -1,8 +1,7 @@
 """
 Pure function to compute derived PatientInfo fields.
 
-Called both from the pre_save signal (for persisted PatientInfo) and from
-resolve_patient_info() when constructing an in-memory (stateless) instance.
+Called from resolve_patient_info() when constructing an in-memory instance.
 """
 from django.contrib.gis.geos import Point
 
@@ -15,6 +14,9 @@ def normalize_patient_info(pi) -> None:
 
     Does NOT save to the database. Safe to call on unsaved instances.
     """
+    from trials.services.patient_info.patient_info_attributes import PatientInfoAttributes
+    from trials.services.patient_info.convertors.egfr_calculator import EgfrCalculator
+
     _normalize_therapy_lines(pi)
     _normalize_treatment_refractory_status(pi)
     _normalize_geo_point(pi)
@@ -24,6 +26,23 @@ def normalize_patient_info(pi) -> None:
     _normalize_metastatic_status(pi)
     _normalize_measurable_disease_imwg(pi)
     _normalize_last_treatment(pi)
+
+    attr = PatientInfoAttributes(pi)
+    pi.bmi = attr.bmi
+    pi.meets_crab = attr.meets_crab
+    pi.meets_slim = attr.meets_slim
+    if pi.meets_crab is True or pi.meets_slim is True:
+        pi.progression = 'active'
+    elif pi.meets_crab is False and pi.meets_slim is False and not pi.progression:
+        pi.progression = 'smoldering'
+    sct = attr.stem_cell_transplant_history_from_therapy_lines
+    if sct:
+        pi.stem_cell_transplant_history = [sct]
+    pi.renal_adequacy_status = attr.renal_adequacy_status
+    egfr = EgfrCalculator.call(pi)
+    if egfr:
+        pi.estimated_glomerular_filtration_rate = egfr
+    pi.tp53_disruption = attr.tp53_disruption
 
 
 # ---------------------------------------------------------------------------

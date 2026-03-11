@@ -95,9 +95,6 @@ WSGI_APPLICATION = 'exact.wsgi.application'
 # ---------------------------------------------------------------------------
 # Databases
 # ---------------------------------------------------------------------------
-# Primary DB for trial catalog data.
-# PatientInfo can optionally live in a separate DB — set PATIENT_DB_URL to
-# enable the router; leave it unset to use the default DB.
 
 DATABASES = {
     'default': {
@@ -109,13 +106,6 @@ DATABASES = {
         'PORT': os.environ.get('DATABASE_PORT', '5432'),
     }
 }
-
-_patient_db_url = os.environ.get('PATIENT_DB_URL')
-if _patient_db_url:
-    import dj_database_url as _dj
-    DATABASES['patients'] = _dj.config(default=_patient_db_url)
-    DATABASES['patients']['ENGINE'] = 'django.contrib.gis.db.backends.postgis'
-    DATABASE_ROUTERS = ['exact.routers.PatientInfoRouter']
 
 CACHES = {
     "default": {

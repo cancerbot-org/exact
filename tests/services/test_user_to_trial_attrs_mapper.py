@@ -55,32 +55,27 @@ class TestUserToTrialAttrsMapper:
         # assert sorted(list(res.keys())) == ['abnormal_kappa_lambda_ratio', 'absolute_neutrophile_count', 'albumin_level', 'biopsy_grade', 'bmi', 'bone_imaging_result', 'bone_only_metastasis_status', 'caregiver_availability_status', 'clonal_plasma_cells', 'concomitant_medications', 'contraceptive_use', 'creatinine_clearance_rate', 'diastolic_blood_pressure', 'distant_metastasis_stage', 'ecog_performance_status', 'ejection_fraction', 'estimated_glomerular_filtration_rate', 'estrogen_receptor_status', 'ethnicity', 'first_line_therapy', 'gender', 'genetic_mutations', 'hemoglobin_level', 'her2_status', 'histologic_type', 'hr_status', 'hrd_status', 'ki67_proliferation_index', 'lactate_dehydrogenase_level', 'language_skill_level', 'languages', 'languages_skills', 'last_treatment', 'liver_enzyme_levels_alp', 'liver_enzyme_levels_alt', 'liver_enzyme_levels_ast', 'measurable_disease_by_recist_status', 'meets_crab', 'meets_meas_or_bone_status', 'meets_slim', 'menopausal_status', 'metastatic_status', 'monoclonal_protein_serum', 'monoclonal_protein_urine', 'nodes_stage', 'patient_age', 'pd_l1_assay', 'pd_l1_combined_positive_score', 'pd_l1_ic_percentage', 'pd_l1_tumor_cels', 'peripheral_neuropathy_grade', 'planned_therapies', 'platelet_count', 'pre_existing_condition_categories', 'pregnancy_test_result', 'prior_therapy', 'progesterone_receptor_status', 'pulmonary_function_test_result', 'red_blood_cell_count', 'relapse_count', 'renal_adequacy_status', 'serum_bilirubin_level_direct', 'serum_bilirubin_level_total', 'serum_calcium_level', 'serum_creatinine_level', 'stage', 'staging_modalities', 'supportive_therapies', 'systolic_blood_pressure', 'tnbc_status', 'toxicity_grade', 'treatment_refractory_status', 'tumor_stage', 'weight', 'white_blood_cell_count']
 
         patient_info.disease = 'follicular lymphoma'
-        patient_info.save()
 
         res = UserToTrialAttrsMapper().potential_attrs_to_check(patient_info=patient_info)
         # print("\n\n>>>>res.keys()", list(res.keys()))
         assert list(res.keys()) == ['patient_age', 'gender', 'ethnicity', 'languages_skills', 'weight', 'bmi', 'systolic_blood_pressure', 'diastolic_blood_pressure', 'stage', 'ecog_performance_status', 'pre_existing_condition_categories', 'peripheral_neuropathy_grade', 'flipi_score_options', 'tumor_grade', 'planned_therapies', 'supportive_therapies', 'prior_therapy', 'first_line_therapy', 'last_treatment', 'concomitant_medications', 'relapse_count', 'treatment_refractory_status', 'absolute_neutrophile_count', 'platelet_count', 'white_blood_cell_count', 'red_blood_cell_count', 'serum_calcium_level', 'creatinine_clearance_rate', 'serum_creatinine_level', 'hemoglobin_level', 'meets_crab', 'estimated_glomerular_filtration_rate', 'liver_enzyme_levels_ast', 'liver_enzyme_levels_alt', 'liver_enzyme_levels_alp', 'albumin_level', 'serum_bilirubin_level_total', 'serum_bilirubin_level_direct', 'abnormal_kappa_lambda_ratio', 'meets_slim', 'monoclonal_protein_serum', 'monoclonal_protein_urine', 'lactate_dehydrogenase_level', 'pulmonary_function_test_result', 'bone_imaging_result', 'clonal_plasma_cells', 'ejection_fraction', 'caregiver_availability_status', 'contraceptive_use', 'pregnancy_test_result']
 
         patient_info.patient_age = 50
-        patient_info.save()
 
         res = UserToTrialAttrsMapper().potential_attrs_to_check(patient_info=patient_info)
         assert '(CASE WHEN age_low_limit IS NULL AND age_high_limit IS NULL THEN NULL ELSE 1 END)' not in res.values()
 
         patient_info.gender = 'M'
-        patient_info.save()
 
         res = UserToTrialAttrsMapper().potential_attrs_to_check(patient_info=patient_info)
         assert '(CASE WHEN gender IS NULL THEN NULL ELSE 1 END)' not in res.values()
 
         patient_info.gender = None
-        patient_info.save()
 
         res = UserToTrialAttrsMapper().potential_attrs_to_check(patient_info=patient_info)
         assert "(CASE WHEN (gender IS NULL OR gender = '') THEN NULL ELSE 1 END)" in res.values()
 
         patient_info.gender = ''
-        patient_info.save()
 
         res = UserToTrialAttrsMapper().potential_attrs_to_check(patient_info=patient_info)
         assert "(CASE WHEN (gender IS NULL OR gender = '') THEN NULL ELSE 1 END)" in res.values()
@@ -88,13 +83,11 @@ class TestUserToTrialAttrsMapper:
         # check user-controlled consent_capability
 
         patient_info.consent_capability = False
-        patient_info.save()
 
         res = UserToTrialAttrsMapper().potential_attrs_to_check(patient_info=patient_info)
         assert '(CASE WHEN consent_capability_required IS NOT TRUE THEN NULL ELSE 1 END)' in res.values()
 
         patient_info.consent_capability = True
-        patient_info.save()
 
         res = UserToTrialAttrsMapper().potential_attrs_to_check(patient_info=patient_info)
         assert '(CASE WHEN consent_capability_required IS NOT TRUE THEN NULL ELSE 1 END)' not in res.values()

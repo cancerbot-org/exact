@@ -1,14 +1,15 @@
 import pytest
 
+from trials.models import PatientInfo
 from trials.services.user_to_trial_attr_matcher import UserToTrialAttrMatcher
-from tests.factories import *
+from tests.factories import TrialFactory
 
 
 class TestUserToTrialAttrMatcher:
     @pytest.mark.django_db
     def test_potential_attrs_to_check(self):
         trial = TrialFactory()
-        patient_info = PatientInfoFactory(disease='multiple myeloma')
+        patient_info = PatientInfo(disease='multiple myeloma')
 
         service = UserToTrialAttrMatcher(trial, patient_info)
         assert service.trial_match_status() == 'eligible'
@@ -18,30 +19,25 @@ class TestUserToTrialAttrMatcher:
         assert service.trial_match_status() == 'potential'
 
         patient_info.patient_age = 16
-        patient_info.save()
         assert service.trial_match_status() == 'not_eligible'
 
     @pytest.mark.django_db
     def test_therapy_related_things_mismatch_status(self):
         trial = TrialFactory()
-        patient_info = PatientInfoFactory(disease='multiple myeloma')
+        patient_info = PatientInfo(disease='multiple myeloma')
 
         service = UserToTrialAttrMatcher(trial, patient_info)
         assert service.therapy_related_things_mismatch_status() == 'unknown'
 
         patient_info.prior_therapy = 'None'
-        patient_info.save()
-
         assert service.therapy_related_things_mismatch_status() == 'not_matched'
 
         patient_info.prior_therapy = 'More than two lines of therapy'
-        patient_info.save()
-
         assert service.therapy_related_things_mismatch_status() == 'unknown'
 
     @pytest.mark.django_db
     def test_therapy_related_things_match_status(self):
-        patient_info = PatientInfoFactory(disease='multiple myeloma', prior_therapy='None')
+        patient_info = PatientInfo(disease='multiple myeloma', prior_therapy='None')
 
         trial1 = TrialFactory(therapies_required=['vrd'])
         trial2 = TrialFactory(therapies_excluded=['vrd'])
@@ -66,7 +62,6 @@ class TestUserToTrialAttrMatcher:
 
         patient_info.prior_therapy = 'One line'
         patient_info.first_line_therapy = 'dara_vrd'
-        patient_info.save()
 
         assert UserToTrialAttrMatcher(trial1, patient_info).therapy_related_things_match_status() == {
             'therapiesRequired': {'status': 'not_matched', 'values': ['Dara-VRd']},
@@ -87,7 +82,6 @@ class TestUserToTrialAttrMatcher:
         }
 
         patient_info.first_line_therapy = 'vrd'
-        patient_info.save()
 
         assert UserToTrialAttrMatcher(trial1, patient_info).therapy_related_things_match_status() == {
             'therapiesRequired': {'status': 'matched', 'values': ['**VRd**']},

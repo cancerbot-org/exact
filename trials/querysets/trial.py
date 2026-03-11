@@ -1138,6 +1138,8 @@ class TrialQuerySet(models.QuerySet):
 
             if 'computed_value_type' in trial_attr_meta:
                 user_attr_type = trial_attr_meta['computed_value_type']
+            elif user_attr == 'pre_existing_condition_categories':
+                user_attr_type = list
             else:
                 user_attr_type = type(patient_info.__class__._meta.get_field(user_attr))
 

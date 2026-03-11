@@ -69,6 +69,21 @@ python manage.py search_trials_for_omop_patients \
 | `--output` | _(stdout only)_ | File path to write results (`--format` controls the format) |
 | `--format` | `json` | Output format for `--output`: `json` or `csv` |
 | `--dry-run` | off | Print the API request body for the first patient and exit without making search calls |
+| `--search-title` | _(none)_ | Filter trials by title keyword |
+| `--recruitment-status` | _(none)_ | Filter by recruitment status (e.g. `RECRUITING`) |
+| `--sponsor` | _(none)_ | Filter trials by sponsor name |
+| `--register` | _(none)_ | Filter by trial register (e.g. `ClinicalTrials.gov`) |
+| `--trial-type` | _(none)_ | Filter by trial type |
+| `--study-type` | _(none)_ | Filter by study type |
+| `--study-id` | _(none)_ | Filter by specific study ID (e.g. NCT number) |
+| `--validated-only` | off | Return only manually validated trials |
+| `--distance` | _(none)_ | Maximum distance from patient location to trial site |
+| `--distance-units` | `km` | Distance units: `km` or `miles` |
+| `--country` | _(none)_ | Filter trials to a specific country code (e.g. `US`, `DE`) |
+| `--region` | _(none)_ | Filter trials to a specific region/state |
+| `--postal-code` | _(none)_ | Filter trials near a postal code |
+| `--last-update` | _(none)_ | Filter trials updated after this date (`YYYY-MM-DD`) |
+| `--first-enrolment` | _(none)_ | Filter trials with first enrolment after this date (`YYYY-MM-DD`) |
 
 ## Goodness score weights
 
@@ -314,9 +329,9 @@ All three can be passed as CLI flags instead (`--source-db-url`, `--api-url`, `-
 
 ## Relation to other commands
 
-| Command | Purpose |
-|---------|---------|
-| `load_patient_info_from_omop` | ETL: copies PatientInfo from exactomop into exact's database |
-| `search_trials_for_omop_patients` | Search: reads PatientInfo from exactomop and calls exact's API directly, without writing to exact's database |
+| Command | Source | Purpose |
+|---------|--------|---------|
+| `search_trials_for_omop_patients` | exactomop DB | Batch trial search against exactomop patient data |
+| `search_trials_for_ctomop_patients` | ctomop DB or API | Batch trial search against ctomop patient data |
 
-Use `load_patient_info_from_omop` when you want to persist patient records in exact for ongoing use. Use `search_trials_for_omop_patients` when you want a one-off batch search against the live exactomop data without touching exact's database.
+Both commands read patient data on-the-fly and call exact's API without writing anything to exact's database.

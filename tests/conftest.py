@@ -1,7 +1,7 @@
-import json
-
 import pytest
 from django.test.client import Client
+
+from trials.models import PatientInfo
 
 from trials.services.loaders.load_bc_options import LoadBcOptions
 from trials.services.loaders.load_concomitant_medications import LoadConcomitantMedications
@@ -11,8 +11,6 @@ from trials.services.loaders.load_markers import LoadMarkers
 from trials.services.loaders.load_supportive_therapies import LoadSupportiveTherapies
 from trials.services.loaders.load_therapies import LoadTherapies
 from trials.services.loaders.load_toxicity_grade_options import LoadToxicityGradeOptions
-
-from tests.factories import PatientInfoFactory
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -30,9 +28,8 @@ def django_db_setup(django_db_setup, django_db_blocker):
 
 
 @pytest.fixture
-def patient_info(db):
-    """A basic saved PatientInfo for use in tests."""
-    return PatientInfoFactory()
+def patient_info():
+    return PatientInfo(disease='multiple myeloma')
 
 
 @pytest.fixture
@@ -40,19 +37,12 @@ def api_client():
     return Client(content_type='application/json')
 
 
-def patient_info_payload(patient_info=None, **overrides):
-    """
-    Build a minimal patient_info JSON dict for stateless API calls.
-    Accepts an existing PatientInfo instance or keyword overrides.
-    """
+def patient_info_payload(**overrides):
+    """Build a minimal patient_info JSON dict for stateless API calls."""
     base = {
         'disease': 'multiple myeloma',
         'gender': '',
         'patientAge': None,
     }
-    if patient_info is not None:
-        base['disease'] = patient_info.disease or ''
-        base['gender'] = patient_info.gender or ''
-        base['patientAge'] = patient_info.patient_age
     base.update(overrides)
     return base

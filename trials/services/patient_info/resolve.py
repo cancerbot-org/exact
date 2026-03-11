@@ -1,41 +1,23 @@
 """
-Unified PatientInfo resolver.
+PatientInfo resolver — stateless (inline JSON) only.
 
-Supports two modes:
-  - Stateful:   ?patient_info_id=<pk>  — loads PatientInfo from DB
-  - Stateless:  body key "patient_info": {...} — builds an in-memory instance
-                (no DB write; M2M via _pre_existing_condition_categories attribute)
+The caller sends patient data as {"patient_info": {...}} in the request body.
+No DB lookup is performed; PatientInfo is never persisted by this path.
 """
-from rest_framework.exceptions import ValidationError
-
 from trials.services.patient_info.normalize import normalize_patient_info
 
 
 def resolve_patient_info(request):
     """
-    Return a PatientInfo instance (saved or in-memory) from the request.
+    Build an in-memory PatientInfo instance from the request body.
 
-    Raises ValidationError if neither source is found.
+    Returns None if no patient_info payload is present (caller may proceed
+    without patient context, e.g. for public trial browsing).
     """
-    patient_info_id = request.query_params.get('patient_info_id') or request.data.get('patient_info_id')
     patient_info_data = request.data.get('patient_info')
-
-    if patient_info_id:
-        return _load_from_db(patient_info_id)
-    elif patient_info_data:
-        return _build_in_memory(patient_info_data)
-    else:
-        raise ValidationError(
-            'Provide either "patient_info_id" query param or "patient_info" object in request body.'
-        )
-
-
-def _load_from_db(patient_info_id):
-    from trials.models import PatientInfo
-    try:
-        return PatientInfo.objects.get(pk=patient_info_id)
-    except (PatientInfo.DoesNotExist, ValueError, TypeError):
-        raise ValidationError(f'PatientInfo with id={patient_info_id} not found.')
+    if not patient_info_data:
+        return None
+    return _build_in_memory(patient_info_data)
 
 
 def _build_in_memory(data: dict):

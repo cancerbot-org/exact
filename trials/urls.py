@@ -5,7 +5,6 @@ from rest_framework import permissions
 from rest_framework.routers import DefaultRouter
 
 from trials.api.graph_view import TrialsGraphViewSet
-from trials.api.patient_info_views import PatientInfoViewSet
 from trials.api.trials_views import TrailsViewSet, CountriesViewSet, LocationsViewSet, FormSettingsViewSet
 
 schema_view = get_schema_view(
@@ -21,7 +20,6 @@ schema_view = get_schema_view(
 app_name = 'trials'
 
 router = DefaultRouter()
-router.register(r'patient-info', PatientInfoViewSet, basename='patientinfo')
 router.register(r'trials', TrailsViewSet, basename='trials-v1')
 router.register(r'trials-graph', TrialsGraphViewSet, basename='trials-graph-v1')
 router.register(r'countries', CountriesViewSet, basename='countries-v1')

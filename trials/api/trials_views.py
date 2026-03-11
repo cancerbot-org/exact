@@ -6,8 +6,9 @@ from rest_framework import serializers
 
 from trials.api.pagination import TrialsPagination
 from trials.api.trials_serializers import TrialSerializer, TrialDetailsSerializer
-from trials.models import Trial, Location, PreferredCountry, State, StudyInfo
+from trials.models import Trial, Location, PreferredCountry, State
 from trials.services.patient_info.resolve import resolve_patient_info
+from trials.services.study_preferences import study_preferences_from_query_params
 from trials.services.value_options import ValueOptions
 
 
@@ -77,18 +78,21 @@ class TrailsViewSet(viewsets.ReadOnlyModelViewSet):
         except Exception:
             return None
 
+    def _resolve_study_preferences(self):
+        return study_preferences_from_query_params(self.request.query_params)
+
     def get_queryset(self, patient_info=None):
         if patient_info is None:
             patient_info = self._resolve_patient_info()
 
         queryset = Trial.objects.all()
-        study_info = self._get_study_info(patient_info)
+        study_prefs = self._resolve_study_preferences()
         search_type = self.request.query_params.get('type', None)
 
         if self.action in ['list', 'count', 'search']:
             queryset, _ = queryset.filtered_trials(
                 search_options=self.request.query_params,
-                study_info=study_info,
+                study_info=study_prefs,
                 patient_info=patient_info,
                 add_traces=False,
                 search_type=search_type,
@@ -113,7 +117,7 @@ class TrailsViewSet(viewsets.ReadOnlyModelViewSet):
         if self.action == 'retrieve':
             queryset = queryset.with_distance_optimized(
                 patient_info.geo_point if patient_info else None,
-                recruitment_status=study_info.recruitment_status if study_info else None,
+                recruitment_status=study_prefs.recruitment_status,
             )
 
         if self.action == 'list':
@@ -138,7 +142,7 @@ class TrailsViewSet(viewsets.ReadOnlyModelViewSet):
                 if 'distance' not in queryset.query.annotations:
                     queryset = queryset.with_distance_optimized(
                         geo_point=patient_info.geo_point,
-                        recruitment_status=study_info.recruitment_status if study_info else None,
+                        recruitment_status=study_prefs.recruitment_status,
                     )
                 order.append(F('distance').asc(nulls_last=True))
             elif sort_by == 'status':
@@ -166,11 +170,6 @@ class TrailsViewSet(viewsets.ReadOnlyModelViewSet):
 
         return queryset
 
-    def _get_study_info(self, patient_info):
-        if patient_info and patient_info.pk:
-            return StudyInfo.objects.filter(patient_info=patient_info).first()
-        return None
-
     def _trials_counts(self, queryset, patient_info):
         return _BlankAttributeRecordsCount().counts(queryset, patient_info)
 
@@ -180,14 +179,14 @@ class TrailsViewSet(viewsets.ReadOnlyModelViewSet):
     def get_serializer_context(self):
         context = super().get_serializer_context()
         patient_info = self._resolve_patient_info()
-        study_info = self._get_study_info(patient_info)
+        study_prefs = self._resolve_study_preferences()
         template = self.request.query_params.get('view', None)
         search_type = self.request.query_params.get('type', None)
 
         context.update({
             'patient_info': patient_info,
-            'distance_units': study_info.distance_units if study_info else 'km',
-            'recruitment_status': study_info.recruitment_status if study_info else None,
+            'distance_units': study_prefs.distance_units,
+            'recruitment_status': study_prefs.recruitment_status,
             'counts': {},
             'template': template,
             'search_type': search_type,

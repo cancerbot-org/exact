@@ -2,6 +2,7 @@ import pytest
 
 from trials.services.value_options import ValueOptions
 from trials.services.trial_details.trial_templates import TrialTemplates
+from trials.services.patient_info.normalize import normalize_patient_info
 from tests.factories import *
 
 
@@ -15,7 +16,7 @@ class TestTrialTemplates:
         pi.estrogen_receptor_status = 'er_minus'
         pi.progesterone_receptor_status = 'pr_minus'
         pi.genetic_mutations = [{'gene': 'brca1', 'variant': 'c.5096g_a', 'origin': 'somatic', 'interpretation': 'vus'}]
-        pi.save()
+        normalize_patient_info(pi)
 
         trial_types = ValueOptions().all_options()['trialType']['options']
 
@@ -40,9 +41,8 @@ class TestTrialTemplates:
         pi.later_therapy = 'dara_vrd'
         pi.later_therapies = [{'therapy': 'dara_vrd'}]
         pi.later_outcome = 'SD'
-        pi.save()
+        normalize_patient_info(pi)
 
-        pi.refresh_from_db()
 
         assert pi.treatment_refractory_status == 'primaryRefractory'
 
@@ -63,9 +63,8 @@ class TestTrialTemplates:
             {'gene': 'brca1', 'variant': None, 'origin': None, 'interpretation': 'vus'},
             {'gene': 'esr1', 'variant': None, 'origin': None, 'interpretation': 'vus'}
         ]
-        pi.save()
+        normalize_patient_info(pi)
 
-        pi.refresh_from_db()
 
         res = TrialTemplates(trial, patient_info=patient_info).potential_attributes_first_view(None)
         assert set(res.keys()) == {'general', 'trialEligibilityAttributes'}
@@ -142,7 +141,7 @@ class TestTrialTemplates:
         pi.gender = 'M'
         pi.ethnicity = 'Caucasian/European'
         pi.liver_enzyme_levels_alt = 75
-        pi.save()
+        normalize_patient_info(pi)
 
         res = TrialTemplates(t1, patient_info=patient_info).potential_attributes_first_view(None)
         # print("\n\n>>>>>res['trialEligibilityAttributes'][2]", res['trialEligibilityAttributes'][1])
@@ -217,7 +216,7 @@ class TestTrialTemplates:
 
         pi = patient_info
         pi.disease = 'follicular lymphoma'
-        pi.save()
+        normalize_patient_info(pi)
 
         res = TrialTemplates(t1, patient_info=patient_info).potential_attributes_first_view(None)
         # print("\n\n>>>>>res['trialEligibilityAttributes']", res['trialEligibilityAttributes'])

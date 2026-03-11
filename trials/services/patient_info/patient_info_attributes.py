@@ -25,6 +25,11 @@ class PatientInfoAttributes:
         if user_attr_value is None:
             is_blank = True
 
+        if attr_name == 'pre_existing_condition_categories':
+            if self.patient_info.no_pre_existing_conditions is True:
+                return False
+            return len(user_attr_value) == 0
+
         trial_attr_meta = self.mapping[attr_name]
 
         if attr_name in THERAPY_LINES_ATTRS_UNDERSCORED:
@@ -52,30 +57,24 @@ class PatientInfoAttributes:
                 is_blank = True
             if is_under_user_control and user_attr_value is not True:
                 is_blank = True
-            if attr_name in ("pre_existing_condition_categories",) and self.patient_info.no_pre_existing_conditions is True:
-                return False
-            if isinstance(user_attr_value, (list, tuple)) and len(user_attr_value) == 0 and attr_name in ("pre_existing_condition_categories",):
-                is_blank = True
 
         return is_blank
 
     def get_value(self, attr_name):
+        if attr_name == 'pre_existing_condition_categories':
+            if self.patient_info.no_pre_existing_conditions is True:
+                return ['none']
+            elif hasattr(self.patient_info, '_pre_existing_condition_categories'):
+                return [c.code for c in self.patient_info._pre_existing_condition_categories]
+            else:
+                return []
+
         user_attr_value = getattr(self.patient_info, attr_name)
 
         if attr_name not in self.mapping:
             return user_attr_value
 
         trial_attr_meta = self.mapping[attr_name]
-
-        if attr_name in ("pre_existing_condition_categories",):
-            if self.patient_info.no_pre_existing_conditions is True:
-                user_attr_value = ['none']
-            elif hasattr(self.patient_info, '_pre_existing_condition_categories'):
-                # stateless (unsaved) instance — synthetic attribute holds a list of
-                # PreExistingConditionCategory objects set by resolve_patient_info()
-                user_attr_value = [c.code for c in self.patient_info._pre_existing_condition_categories]
-            else:
-                user_attr_value = list(user_attr_value.values_list("category__code", flat=True))
 
         if attr_name == 'trial_type':
             try:

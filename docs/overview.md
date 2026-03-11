@@ -1,8 +1,9 @@
 # EXACT — Architecture Overview
 
 EXACT (EXtracting Attributes from Clinical Trials) is a standalone Django service
-extracted from the CancerBot platform. It owns the trial catalog, patient profile
-management, and the eligibility-matching engine.
+extracted from the CancerBot platform. It owns the trial catalog and the
+eligibility-matching engine. Patient data is always passed inline per request —
+nothing is persisted.
 
 ---
 
@@ -10,12 +11,11 @@ management, and the eligibility-matching engine.
 
 1. **Stores the trial catalog** — every `Trial` record and its 150+ structured
    eligibility-criteria fields.
-2. **Stores patient profiles** (`PatientInfo`) — demographics, disease history,
-   lab values, therapy lines, biomarkers, and geolocation.
-3. **Matches patients to trials** — scores and ranks trials against a patient's
+2. **Matches patients to trials** — scores and ranks trials against a patient's
    profile using a disease-aware attribute matching algorithm.
-4. **Exposes a REST API** — callers can pass a saved `patient_info_id` *or* send
-   a one-off `patient_info` JSON object; no session state is required.
+3. **Exposes a REST API** — callers send a `patient_info` JSON object with each
+   request; the engine builds an in-memory profile, runs matching, and returns
+   ranked trial results. No patient state is stored.
 
 ---
 
@@ -24,14 +24,14 @@ management, and the eligibility-matching engine.
 ```
 ┌──────────────────────────────────────────────────────┐
 │                   REST API (DRF)                     │
-│  /patient-info/   /trials/   /trials-graph/          │
+│  /trials/   /trials-graph/                           │
 │  /form-settings/  /countries/  /locations/           │
 └────────────────────┬─────────────────────────────────┘
                      │
         ┌────────────▼────────────┐
-        │   resolve_patient_info  │  stateful (DB id) or
-        │   (trials/services/     │  stateless (JSON body)
-        │    patient_info/        │
+        │   resolve_patient_info  │  stateless only:
+        │   (trials/services/     │  builds PatientInfo in memory
+        │    patient_info/        │  from JSON body
         │    resolve.py)          │
         └────────────┬────────────┘
                      │
@@ -62,9 +62,8 @@ management, and the eligibility-matching engine.
 | Model | Purpose |
 |---|---|
 | `Trial` | One clinical trial, ~150 eligibility-criteria fields |
-| `PatientInfo` | Patient medical profile, ~100 fields |
+| `PatientInfo` | In-memory patient profile (unmanaged — never persisted) |
 | `Location` / `LocationTrial` | Geographic trial sites (PostGIS) |
-| `StudyInfo` | Saved search preferences per patient |
 | `Therapy` / `TherapyComponent` / `TherapyComponentCategory` | Therapy taxonomy |
 | `Marker` / `MarkerCategory` | Biomarker taxonomy |
 | `ConcomitantMedication` | Medication taxonomy |
@@ -78,12 +77,17 @@ management, and the eligibility-matching engine.
 
 ### `resolve_patient_info` (`trials/services/patient_info/resolve.py`)
 
-The entry point for all API calls that need patient context. Supports two modes:
+Builds an unsaved `PatientInfo` instance from the `"patient_info": {...}` key
+in the request body. Converts camelCase to snake_case, filters to known fields,
+attaches synthetic M2M attributes, and calls `normalize_patient_info`. Returns
+`None` if no patient_info payload is present.
 
-- **Stateful** — `?patient_info_id=<pk>`: loads a saved `PatientInfo` from the DB.
-- **Stateless** — `"patient_info": {...}` in the request body: builds an unsaved
-  in-memory `PatientInfo`, runs normalization, and returns it without writing to
-  the DB. The caller's data is never persisted.
+### `study_preferences_from_query_params` (`trials/services/study_preferences.py`)
+
+Builds a `StudyPreferences` dataclass from query parameters (distance,
+distanceUnits, recruitmentStatus, searchTitle, sponsor, register, trialType,
+validatedOnly, etc.). Replaces the former `StudyInfo` DB model — no persistence,
+no lookup.
 
 ### `normalize_patient_info` (`trials/services/patient_info/normalize.py`)
 
@@ -96,9 +100,6 @@ Pure function (no DB write). Computes all derived fields from raw inputs:
 - Derives TNBC and HR status from receptor statuses (breast cancer)
 - Derives metastatic status and IMWG measurable-disease criteria (myeloma)
 - Sets `last_treatment` date from the most recent therapy line
-
-Called explicitly on create/update in the API views, and automatically via a
-`pre_save` signal on subsequent saves of existing records.
 
 ### `UserToTrialAttrMatcher` (`trials/services/user_to_trial_attr_matcher.py`)
 
@@ -115,7 +116,7 @@ The SQL-level filtering layer. Key methods:
 
 - `filtered_trials(search_options, study_info, patient_info)` — applies all
   active filters (disease, therapy, markers, distance, etc.) and annotates the
-  queryset with `match_score`.
+  queryset with `match_score`. `study_info` is now a `StudyPreferences` dataclass.
 - `with_goodness_score_optimized()` — annotates with a weighted composite score
   (benefit, patient burden, risk, distance).
 - `with_distance_optimized(geo_point)` — annotates with distance to nearest
@@ -139,27 +140,24 @@ markers, outcomes, staging options, ethnicity, etc.). Consumed by the API's
 
 ---
 
-## Patient-info normalization lifecycle
+## Patient-info lifecycle (stateless)
 
 ```
-POST /patient-info/          PATCH /patient-info/{id}/      GET /trials/?patient_info_id=
-        │                            │                               │
-   API view creates             API view loads                  resolve() loads
-   PatientInfo                  PatientInfo                     PatientInfo from DB
-        │                            │
-   normalize_patient_info()    normalize_patient_info()
-   (explicit call)             (explicit call)
-        │                            │
-   patient_info.save()         patient_info.save()
-        │                            │
-   pre_save signal ─────────── pre_save signal
-   (skipped on first           (runs normalize again
-    create: no pk yet)          as a safety net)
+GET /trials/
+  │
+  ├── request.data["patient_info"] → resolve_patient_info()
+  │         │
+  │         ├── camelCase → snake_case
+  │         ├── filter to known PatientInfo fields
+  │         ├── PatientInfo(**fields)  ← unsaved, in-memory only
+  │         └── normalize_patient_info(pi)
+  │
+  ├── request.query_params → study_preferences_from_query_params()
+  │         └── StudyPreferences dataclass (distance, filters, etc.)
+  │
+  └── filtered_trials(study_info=study_prefs, patient_info=pi)
+            └── results returned — nothing written to DB
 ```
-
-For **stateless** requests (JSON body), `resolve_patient_info` builds an
-in-memory instance, runs `normalize_patient_info`, and returns it — nothing is
-written to the DB.
 
 ---
 
@@ -167,17 +165,12 @@ written to the DB.
 
 PostgreSQL 16 with PostGIS. Key indexes:
 
-- `GistIndex` on `PatientInfo.geo_point` and `Location.geo_point` for fast
-  distance queries.
+- `GistIndex` on `Location.geo_point` for fast distance queries.
 - `GinIndex` on trial JSON array fields (therapies, markers, stages) for
   containment lookups.
 
-### Optional split-database configuration
-
-`PatientInfo` can be routed to a separate PostgreSQL database (e.g. for privacy
-isolation) by setting `PATIENT_DB_URL`. The `PatientInfoRouter` in
-`exact/routers.py` handles read/write routing automatically. When unset,
-everything uses the default DB.
+`PatientInfo` has `managed = False` — the class exists for in-memory use only;
+no table is created or maintained.
 
 ---
 
