@@ -49,6 +49,7 @@ import logging
 import os
 import sys
 from datetime import date
+from decimal import Decimal
 
 import requests
 
@@ -122,6 +123,9 @@ def _build_patient_info_body(row: dict) -> dict:
 
         if isinstance(val, date):
             val = val.isoformat()
+
+        if isinstance(val, Decimal):
+            val = float(val)
 
         body[_to_camel_case(col)] = val
 

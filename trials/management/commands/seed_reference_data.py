@@ -141,10 +141,6 @@ class Command(BaseCommand):
             'MM': 'Multiple Myeloma',
             'FL': 'Follicular Lymphoma',
             'CLL': 'Chronic Lymphocytic Leukemia',
-            # lowercase codes used by some loaders
-            'bc': 'Breast Cancer',
-            'mm': 'Multiple Myeloma',
-            'fl': 'Follicular Lymphoma',
         }
         for code, title in diseases.items():
             Disease.objects.update_or_create(code=code, defaults={'title': title})

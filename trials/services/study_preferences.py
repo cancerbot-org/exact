@@ -38,6 +38,9 @@ class StudyPreferences:
     # Quality filter
     validated_only: bool = False
 
+    # Trial phase filter
+    phase: Optional[str] = None
+
     # Date filters
     last_update: Optional[str] = None
     first_enrolment: Optional[str] = None

@@ -649,7 +649,8 @@ def options_from_enum_dict(data: dict):
 
 
 def patient_info_attr_units_for(attr, patient_info):
-    from trials.models import PatientInfo, WeightUnits, HeightUnits, PlateletCountUnits, \
+    from trials.services.patient_info.patient_info import PatientInfo
+    from trials.models import WeightUnits, HeightUnits, PlateletCountUnits, \
         SerumCalciumUnits, SerumCreatinineUnits, HemoglobinUnits, SerumBilirubinUnits, AlbuminUnits
 
     if attr == 'weight':
@@ -841,7 +842,8 @@ def patient_info_attr_units_for(attr, patient_info):
 
 
 def trial_attr_units_for(attr):
-    from trials.models import PatientInfo, WeightUnits, PlateletCountUnits, \
+    from trials.services.patient_info.patient_info import PatientInfo
+    from trials.models import WeightUnits, PlateletCountUnits, \
         SerumCalciumUnits, SerumCreatinineUnits, HemoglobinUnits, SerumBilirubinUnits, AlbuminUnits
 
     if attr in ('weight_min', 'weight_max'):

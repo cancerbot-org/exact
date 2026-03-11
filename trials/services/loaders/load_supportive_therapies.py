@@ -17,8 +17,8 @@ class LoadSupportiveTherapies:
             'bc': 'Breast Cancer'
         }
 
-        for code in data.keys():
-            Disease.objects.update_or_create(code=code, defaults={'title': data[code]})
+        for code, title in data.items():
+            Disease.objects.get_or_create(title=title, defaults={'code': code})
 
     def load_therapy_rounds(self):
         data = {
@@ -60,7 +60,7 @@ class LoadSupportiveTherapies:
 
     def connect_therapies_to_supportive_therapy(self):
         supportive_therapy = TherapyRound.objects.get(code='supportive_therapy')
-        diseases = {x.code: x for x in Disease.objects.all()}
+        diseases = {x.code.lower(): x for x in Disease.objects.all()}
 
         supportive_mm = TherapiesMapper().supportive_mm()
         supportive_fl = TherapiesMapper().supportive_fl()

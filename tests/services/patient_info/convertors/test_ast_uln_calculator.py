@@ -1,4 +1,4 @@
-from trials.models import PatientInfo
+from trials.services.patient_info.patient_info import PatientInfo
 import pytest
 
 from tests.factories import *

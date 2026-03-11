@@ -75,7 +75,7 @@ class PatientInfoGeoPoint:
 
     @staticmethod
     def update_country_and_postal_code_by_geolocation(longitude, latitude, pi_id):
-        from trials.models import PatientInfo
+        from trials.services.patient_info.patient_info import PatientInfo
         country_and_postal_code = PatientInfoGeoPoint.country_and_postal_code_by_geolocation(longitude, latitude)
         # force skip signals
         PatientInfo.objects.filter(id=pi_id).update(country=country_and_postal_code['country'],

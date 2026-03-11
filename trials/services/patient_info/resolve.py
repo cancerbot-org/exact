@@ -22,7 +22,8 @@ def resolve_patient_info(request):
 
 def _build_in_memory(data: dict):
     """Build an unsaved PatientInfo from a dict, compute derived fields."""
-    from trials.models import PatientInfo, PreExistingConditionCategory
+    from trials.services.patient_info.patient_info import PatientInfo
+    from trials.models import PreExistingConditionCategory
 
     # Extract M2M fields that can't be set on an unsaved instance
     pre_existing_ids = data.pop('pre_existing_condition_categories', None) or []

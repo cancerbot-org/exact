@@ -1,6 +1,6 @@
 import pytest
 
-from trials.models import PatientInfo
+from trials.services.patient_info.patient_info import PatientInfo
 from trials.services.user_to_trial_attr_matcher import UserToTrialAttrMatcher
 from tests.factories import TrialFactory
 

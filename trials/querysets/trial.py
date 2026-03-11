@@ -28,7 +28,8 @@ from trials.services.user_to_trial_attrs_mapper import UserToTrialAttrsMapper
 
 
 if TYPE_CHECKING:
-    from trials.models import PatientInfo, Trial
+    from trials.services.patient_info.patient_info import PatientInfo
+    from trials.models import Trial
 
 
 def cast_str_to_int(value):

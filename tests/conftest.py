@@ -1,7 +1,7 @@
 import pytest
 from django.test.client import Client
 
-from trials.models import PatientInfo
+from trials.services.patient_info.patient_info import PatientInfo
 
 from trials.services.loaders.load_bc_options import LoadBcOptions
 from trials.services.loaders.load_concomitant_medications import LoadConcomitantMedications

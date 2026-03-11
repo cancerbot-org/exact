@@ -1,7 +1,7 @@
 import pytest
 
 from tests.factories import *
-from trials.models import PatientInfo
+from trials.services.patient_info.patient_info import PatientInfo
 from trials.services.trial_details.trial_attributes import TrialAttributes
 
 

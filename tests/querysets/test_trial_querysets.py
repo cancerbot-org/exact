@@ -9,7 +9,7 @@ from django.contrib.gis.measure import D
 from django.db.models import F
 
 from trials.models import *
-from trials.models import PatientInfo
+from trials.services.patient_info.patient_info import PatientInfo
 from trials.services.patient_info.normalize import normalize_patient_info
 from tests.factories import *
 

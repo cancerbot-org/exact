@@ -21,11 +21,11 @@ class LoadPlannedTherapyOptions:
             'bc': 'Breast Cancer'
         }
 
-        for code in data.keys():
-            Disease.objects.update_or_create(code=code, defaults={'title': data[code]})
+        for code, title in data.items():
+            Disease.objects.get_or_create(title=title, defaults={'code': code})
 
     def get_data(self):
-        diseases = {x.code: x for x in Disease.objects.all()}
+        diseases = {x.code.lower(): x for x in Disease.objects.all()}
         out = {}
         chunks = [
             [self.mm_data(), diseases['mm']],
