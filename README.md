@@ -26,10 +26,7 @@ pip install -r requirements.txt
 python manage.py migrate
 
 # Point to the external trials database
-export TRIALS_DATABASE_NAME=cancerbot_trials
-export TRIALS_DATABASE_HOST=trials-db.example.com
-export TRIALS_DATABASE_USER=readonly
-export TRIALS_DATABASE_PASSWORD=secret
+export TRIALS_DATABASE_URL=postgresql://readonly:secret@trials-db.example.com:5432/cancerbot_trials
 
 python manage.py runserver
 ```

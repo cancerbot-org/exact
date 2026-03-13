@@ -1,9 +1,9 @@
 """
 Database router for split-database deployments.
 
-When TRIALS_DATABASE_* env vars are set, all ``trials`` app models are
-read from / written to a separate database (alias ``trials``), while
-auth, tokens, sessions, and other Django internals stay on ``default``.
+When TRIALS_DATABASE_URL is set, all ``trials`` app models are read
+from / written to a separate database (alias ``trials``), while auth,
+tokens, sessions, and other Django internals stay on ``default``.
 
 When the ``trials`` alias is not configured the router returns None
 everywhere, which makes Django fall back to ``default`` for all models

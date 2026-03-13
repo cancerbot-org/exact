@@ -173,7 +173,7 @@ EXACT uses a **split-database** model:
 `TrialsDatabaseRouter` (`exact/db_router.py`) routes all `trials` app model
 reads/writes to the external database and blocks migrations from running on it.
 
-When `TRIALS_DATABASE_NAME` is not set, the router is inactive and everything
+When `TRIALS_DATABASE_URL` is not set, the router is inactive and everything
 falls back to `default` (single-database mode for local dev and tests).
 
 ### Key indexes (on the external trials database)

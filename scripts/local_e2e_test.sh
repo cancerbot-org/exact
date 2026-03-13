@@ -1,60 +1,70 @@
 #!/usr/bin/env bash
-# Local end-to-end test: seed fake data → start exact API → run trial search
+# Local end-to-end test: connect to external trials DB + local ctomop patients
+#
+# EXACT reads trials from a remote database and patient profiles from a local
+# ctomop database.  No data seeding required — both databases must already
+# contain the relevant data.
 #
 # Prerequisites:
-#   1. exact:  PostgreSQL DB running + migrated  (python manage.py migrate)
-#   2. ctomop: PostgreSQL DB running + migrated
-#              export DATABASE_URL=postgresql://user:pass@localhost:5432/ctomop
-#              cd /path/to/ctomop && python manage.py migrate
+#   1. exact local DB: migrated (python manage.py migrate) — auth/tokens only
+#   2. Remote trials DB: accessible, contains trials in exact's schema
+#   3. Local ctomop DB: contains patient_info records
+#
+# Required env vars:
+#   TRIALS_DATABASE_URL  — remote trials database (postgresql://user:pass@host:5432/dbname)
+#   CTOMOP_DATABASE_URL  — local ctomop database (postgresql://user:pass@localhost:5432/ctomop)
 #
 # Usage (from the exact/ directory):
+#   export TRIALS_DATABASE_URL=postgresql://user:pass@remote.host:5432/exact
 #   export CTOMOP_DATABASE_URL=postgresql://user:pass@localhost:5432/ctomop
 #   bash scripts/local_e2e_test.sh
 #
-# Override the exact API URL and port if needed:
-#   EXACT_PORT=9000 bash scripts/local_e2e_test.sh
+# Options:
+#   EXACT_PORT=9000            — override the API port (default: 8000)
+#   PERSON_IDS=1,2,3           — specific person IDs to test (default: all)
 
 set -e
 
 CTOMOP_DB="${CTOMOP_DATABASE_URL:-}"
 EXACT_PORT="${EXACT_PORT:-8000}"
 EXACT_URL="http://localhost:${EXACT_PORT}"
-CTOMOP_DIR="${CTOMOP_DIR:-../ctomop}"
+PERSON_IDS="${PERSON_IDS:-}"
 
 # ── Validate ──────────────────────────────────────────────────────────
 if [ -z "$CTOMOP_DB" ]; then
-  echo "ERROR: Set CTOMOP_DATABASE_URL to point at your local ctomop PostgreSQL DB." >&2
+  echo "ERROR: Set CTOMOP_DATABASE_URL to point at your ctomop PostgreSQL DB." >&2
   echo "  export CTOMOP_DATABASE_URL=postgresql://user:pass@localhost:5432/ctomop" >&2
   exit 1
 fi
 
-if [ ! -f "$CTOMOP_DIR/manage.py" ]; then
-  echo "ERROR: ctomop not found at $CTOMOP_DIR — set CTOMOP_DIR env var." >&2
+if [ -z "$TRIALS_DATABASE_URL" ]; then
+  echo "ERROR: Set TRIALS_DATABASE_URL for the remote trials DB." >&2
+  echo "  export TRIALS_DATABASE_URL=postgresql://user:pass@host:5432/dbname" >&2
   exit 1
 fi
 
 echo "=============================================="
-echo "Step 1: Seed exact reference data + test trials"
+echo "Step 1: Verify connectivity"
 echo "=============================================="
-python manage.py seed_reference_data
-python manage.py seed_test_trials
-python manage.py shell -c "
+echo "  Trials DB: $TRIALS_DATABASE_URL"
+echo "  CTOMOP DB: $CTOMOP_DB"
+
+TRIAL_COUNT=$(python manage.py shell -c "
 from trials.models import Trial
-count = Trial.objects.filter(code__startswith='TEST-').count()
-print(f'  {count} TEST-* trials ready in exact')
-"
+count = Trial.objects.count()
+print(count)
+" 2>/dev/null | tail -1)
+echo "  Trials available: $TRIAL_COUNT"
+
+if [ "$TRIAL_COUNT" = "0" ]; then
+  echo "ERROR: No trials found in the remote database. Check your TRIALS_DATABASE_* settings." >&2
+  exit 1
+fi
 
 echo ""
 echo "=============================================="
-echo "Step 2: Seed test patients in ctomop"
+echo "Step 2: Create an exact API token"
 echo "=============================================="
-(cd "$CTOMOP_DIR" && DATABASE_URL="$CTOMOP_DB" python manage.py seed_test_patients)
-
-echo ""
-echo "=============================================="
-echo "Step 3: Create an exact API token"
-echo "=============================================="
-# Create a dedicated test user + token if they don't exist yet
 EXACT_TOKEN=$(python manage.py shell -c "
 from django.contrib.auth.models import User
 from rest_framework.authtoken.models import Token
@@ -69,11 +79,14 @@ echo "  Token: $EXACT_TOKEN"
 
 echo ""
 echo "=============================================="
-echo "Step 4: Start exact dev server (background)"
+echo "Step 3: Start exact dev server (background)"
 echo "=============================================="
 python manage.py runserver "$EXACT_PORT" &
 DJANGO_PID=$!
 echo "  exact running on $EXACT_URL (PID $DJANGO_PID)"
+
+# Ensure the server is stopped on exit
+trap "kill $DJANGO_PID 2>/dev/null; exit" INT TERM EXIT
 
 # Wait for server to be ready
 echo "  Waiting for server..."
@@ -87,20 +100,26 @@ done
 
 echo ""
 echo "=============================================="
-echo "Step 5: Run search for all test patients"
+echo "Step 4: Run search for ctomop patients"
 echo "=============================================="
-python manage.py search_trials_for_ctomop_patients \
-  --source-db-url "$CTOMOP_DB" \
-  --api-url "$EXACT_URL" \
-  --api-token "$EXACT_TOKEN" \
-  --person-ids "9001,9002,9003,9004,9005,9006,9007" \
-  --limit 20 \
-  --sort matchScore \
+SEARCH_ARGS=(
+  --source-db-url "$CTOMOP_DB"
+  --api-url "$EXACT_URL"
+  --api-token "$EXACT_TOKEN"
+  --limit 20
+  --sort matchScore
   --output /tmp/exact_local_test_results.json
+)
+
+if [ -n "$PERSON_IDS" ]; then
+  SEARCH_ARGS+=(--person-ids "$PERSON_IDS")
+fi
+
+python manage.py search_trials_for_ctomop_patients "${SEARCH_ARGS[@]}"
 
 echo ""
 echo "=============================================="
-echo "Step 6: Summary"
+echo "Step 5: Summary"
 echo "=============================================="
 python manage.py shell -c "
 import json
@@ -122,4 +141,5 @@ echo ""
 echo "Full results written to /tmp/exact_local_test_results.json"
 echo ""
 echo "Press Ctrl+C to stop the exact server."
+trap - INT TERM EXIT  # restore default traps before wait
 wait $DJANGO_PID

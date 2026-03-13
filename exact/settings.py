@@ -108,15 +108,18 @@ DATABASES = {
 }
 
 # Optional separate database for trials data.
-# Set TRIALS_DATABASE_NAME (or all TRIALS_DATABASE_* vars) to enable.
-if os.environ.get('TRIALS_DATABASE_NAME'):
+# Set TRIALS_DATABASE_URL to enable (e.g. postgresql://user:pass@host:5432/dbname).
+_trials_db_url = os.environ.get('TRIALS_DATABASE_URL')
+if _trials_db_url:
+    from urllib.parse import urlparse
+    _parsed = urlparse(_trials_db_url)
     DATABASES['trials'] = {
         'ENGINE': 'django.contrib.gis.db.backends.postgis',
-        'NAME': os.environ.get('TRIALS_DATABASE_NAME'),
-        'USER': os.environ.get('TRIALS_DATABASE_USER', 'exact'),
-        'PASSWORD': os.environ.get('TRIALS_DATABASE_PASSWORD', ''),
-        'HOST': os.environ.get('TRIALS_DATABASE_HOST', 'localhost'),
-        'PORT': os.environ.get('TRIALS_DATABASE_PORT', '5432'),
+        'NAME': _parsed.path.lstrip('/'),
+        'USER': _parsed.username or 'exact',
+        'PASSWORD': _parsed.password or '',
+        'HOST': _parsed.hostname or 'localhost',
+        'PORT': str(_parsed.port or 5432),
     }
 
 DATABASE_ROUTERS = ['exact.db_router.TrialsDatabaseRouter']

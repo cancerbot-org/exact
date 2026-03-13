@@ -164,11 +164,7 @@ The PostgreSQL user must be a superuser so that the test runner can create the
 | `DATABASE_PASSWORD` | _(empty)_ | PostgreSQL password |
 | `DATABASE_HOST` | `localhost` | PostgreSQL host |
 | `DATABASE_PORT` | `5432` | PostgreSQL port |
-| `TRIALS_DATABASE_NAME` | _(unset)_ | External trials DB name — enables split-database mode |
-| `TRIALS_DATABASE_HOST` | `localhost` | External trials DB host |
-| `TRIALS_DATABASE_USER` | `exact` | External trials DB user |
-| `TRIALS_DATABASE_PASSWORD` | _(empty)_ | External trials DB password |
-| `TRIALS_DATABASE_PORT` | `5432` | External trials DB port |
+| `TRIALS_DATABASE_URL` | _(unset)_ | External trials DB URL — enables split-database mode (`postgresql://user:pass@host:5432/db`) |
 | `REDIS_URL` | `redis://localhost:6379` | Redis URL for Celery (only needed for async tasks) |
 | `GDAL_LIBRARY_PATH` | `/opt/homebrew/lib/libgdal.dylib` | Path to GDAL shared library |
 | `GEOS_LIBRARY_PATH` | `/opt/homebrew/lib/libgeos_c.dylib` | Path to GEOS shared library |
@@ -189,14 +185,10 @@ database automatically by `exact.db_router.TrialsDatabaseRouter`.
 
 ### Setup
 
-Set the `TRIALS_DATABASE_*` environment variables (or add them to `.env`):
+Set the `TRIALS_DATABASE_URL` environment variable (or add it to `.env`):
 
 ```dotenv
-TRIALS_DATABASE_NAME=cancerbot_trials
-TRIALS_DATABASE_HOST=trials-db.example.com
-TRIALS_DATABASE_USER=readonly_user
-TRIALS_DATABASE_PASSWORD=secret
-TRIALS_DATABASE_PORT=5432
+TRIALS_DATABASE_URL=postgresql://readonly_user:secret@trials-db.example.com:5432/cancerbot_trials
 ```
 
 Then migrate only the local database (auth tables):
@@ -211,7 +203,7 @@ its owner.
 
 ### Standalone / local development
 
-When `TRIALS_DATABASE_NAME` is **not set**, the router is inactive and
+When `TRIALS_DATABASE_URL` is **not set**, the router is inactive and
 everything uses the single `default` database. This is the mode used for local
 development and testing:
 
