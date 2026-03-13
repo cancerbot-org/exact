@@ -395,6 +395,10 @@ class Command(BaseCommand):
             person_id = row.get('person_id')
             disease = row.get('disease') or ''
 
+            if not disease:
+                self.stdout.write(f'  Skipping person_id={person_id} (no disease set)')
+                continue
+
             patient_info_body = _build_patient_info_body(dict(row))
 
             if options['dry_run']:

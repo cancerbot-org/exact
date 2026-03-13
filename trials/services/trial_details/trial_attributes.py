@@ -745,7 +745,7 @@ class TrialAttributes:
             subform_details = subform_attrs[user_attr] if user_attr in subform_attrs else None
             ureadonly = ('is_computed_value' in trial_attr_meta and trial_attr_meta['is_computed_value'] is True) or subform_details is not None
 
-            if "disease" in trial_attr_meta and self._patient_info_attr.disease_code not in trial_attr_meta["disease"]:
+            if "disease" in trial_attr_meta and (self._patient_info_attr.disease_code is None or self._patient_info_attr.disease_code not in trial_attr_meta["disease"]):
                 continue
 
             if trial_attr_meta["type"] == "min_value":

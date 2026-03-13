@@ -135,7 +135,7 @@ class UserToTrialAttrsMapper:
             is_under_user_control = 'under_user_control' in trial_attr_meta and trial_attr_meta['under_user_control'] is True
 
             if patient_info:
-                if "disease" in trial_attr_meta and service.disease_code not in trial_attr_meta["disease"]:
+                if "disease" in trial_attr_meta and (service.disease_code is None or service.disease_code not in trial_attr_meta["disease"]):
                     continue
 
                 is_blank = service.is_attr_blank(user_attr)

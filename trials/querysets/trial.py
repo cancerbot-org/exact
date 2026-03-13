@@ -1153,7 +1153,7 @@ class TrialQuerySet(models.QuerySet):
 
             # do the search now
             trial_attr_name = trial_attr_meta["attr"]
-            if "disease" in trial_attr_meta and patient_info_attr.disease_code not in trial_attr_meta["disease"]:
+            if "disease" in trial_attr_meta and (patient_info_attr.disease_code is None or patient_info_attr.disease_code not in trial_attr_meta["disease"]):
                 continue
 
             # if "search_conditions" in trial_attr_meta:

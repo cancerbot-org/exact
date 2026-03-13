@@ -49,7 +49,7 @@ class UserToTrialAttrMatcher:
     def trial_match_status(self):
         out = {}
         for attr, trial_attr_meta in self.mapping.items():
-            if "disease" in trial_attr_meta and self.disease_code not in trial_attr_meta["disease"]:
+            if "disease" in trial_attr_meta and (self.disease_code is None or self.disease_code not in trial_attr_meta["disease"]):
                 continue
             out[attr] = self.attr_match_status(attr)
 
@@ -65,7 +65,7 @@ class UserToTrialAttrMatcher:
         all_count = 0
 
         for attr, trial_attr_meta in self.mapping.items():
-            if "disease" in trial_attr_meta and self.disease_code not in trial_attr_meta["disease"]:
+            if "disease" in trial_attr_meta and (self.disease_code is None or self.disease_code not in trial_attr_meta["disease"]):
                 continue
             status = self.attr_match_status(attr)
             all_count = all_count + 1
