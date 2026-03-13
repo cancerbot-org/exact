@@ -1,16 +1,16 @@
 # EXACT — Architecture Overview
 
-EXACT (EXtracting Attributes from Clinical Trials) is a standalone Django service
-extracted from the CancerBot platform. It owns the trial catalog and the
-eligibility-matching engine. Patient data is always passed inline per request —
-nothing is persisted.
+EXACT (EXtracting Attributes from Clinical Trials) is a stateless search and
+matching engine for clinical trials. It reads trial data from an external
+database — it does not own or manage the trial catalog. Patient data is always
+passed inline per request; nothing is persisted.
 
 ---
 
 ## What it does
 
-1. **Stores the trial catalog** — every `Trial` record and its 150+ structured
-   eligibility-criteria fields.
+1. **Reads the trial catalog** — connects to an external database containing
+   `Trial` records with 150+ structured eligibility-criteria fields.
 2. **Matches patients to trials** — scores and ranks trials against a patient's
    profile using a disease-aware attribute matching algorithm.
 3. **Exposes a REST API** — callers send a `patient_info` JSON object with each
@@ -161,16 +161,32 @@ GET /trials/
 
 ---
 
-## Database
+## Database architecture
 
-PostgreSQL 16 with PostGIS. Key indexes:
+EXACT uses a **split-database** model:
+
+| Database | Alias | What it holds | Managed by EXACT? |
+|---|---|---|---|
+| Local | `default` | Auth users, tokens, sessions | Yes — EXACT runs migrations |
+| External | `trials` | Trial catalog, reference data (therapies, markers, etc.) | **No** — schema is owned externally |
+
+`TrialsDatabaseRouter` (`exact/db_router.py`) routes all `trials` app model
+reads/writes to the external database and blocks migrations from running on it.
+
+When `TRIALS_DATABASE_NAME` is not set, the router is inactive and everything
+falls back to `default` (single-database mode for local dev and tests).
+
+### Key indexes (on the external trials database)
 
 - `GistIndex` on `Location.geo_point` for fast distance queries.
 - `GinIndex` on trial JSON array fields (therapies, markers, stages) for
   containment lookups.
 
-`PatientInfo` has `managed = False` — the class exists for in-memory use only;
-no table is created or maintained.
+### PatientInfo
+
+`PatientInfo` is a plain Python class (not a Django model) — it exists for
+in-memory use only. No table is created or maintained. Patient data is built
+from the request body on every API call.
 
 ---
 

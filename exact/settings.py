@@ -107,6 +107,20 @@ DATABASES = {
     }
 }
 
+# Optional separate database for trials data.
+# Set TRIALS_DATABASE_NAME (or all TRIALS_DATABASE_* vars) to enable.
+if os.environ.get('TRIALS_DATABASE_NAME'):
+    DATABASES['trials'] = {
+        'ENGINE': 'django.contrib.gis.db.backends.postgis',
+        'NAME': os.environ.get('TRIALS_DATABASE_NAME'),
+        'USER': os.environ.get('TRIALS_DATABASE_USER', 'exact'),
+        'PASSWORD': os.environ.get('TRIALS_DATABASE_PASSWORD', ''),
+        'HOST': os.environ.get('TRIALS_DATABASE_HOST', 'localhost'),
+        'PORT': os.environ.get('TRIALS_DATABASE_PORT', '5432'),
+    }
+
+DATABASE_ROUTERS = ['exact.db_router.TrialsDatabaseRouter']
+
 CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",

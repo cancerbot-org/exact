@@ -164,7 +164,11 @@ The PostgreSQL user must be a superuser so that the test runner can create the
 | `DATABASE_PASSWORD` | _(empty)_ | PostgreSQL password |
 | `DATABASE_HOST` | `localhost` | PostgreSQL host |
 | `DATABASE_PORT` | `5432` | PostgreSQL port |
-| `PATIENT_DB_URL` | _(unset)_ | Optional separate DB for PatientInfo; PostGIS URL (`postgis://`) |
+| `TRIALS_DATABASE_NAME` | _(unset)_ | External trials DB name — enables split-database mode |
+| `TRIALS_DATABASE_HOST` | `localhost` | External trials DB host |
+| `TRIALS_DATABASE_USER` | `exact` | External trials DB user |
+| `TRIALS_DATABASE_PASSWORD` | _(empty)_ | External trials DB password |
+| `TRIALS_DATABASE_PORT` | `5432` | External trials DB port |
 | `REDIS_URL` | `redis://localhost:6379` | Redis URL for Celery (only needed for async tasks) |
 | `GDAL_LIBRARY_PATH` | `/opt/homebrew/lib/libgdal.dylib` | Path to GDAL shared library |
 | `GEOS_LIBRARY_PATH` | `/opt/homebrew/lib/libgeos_c.dylib` | Path to GEOS shared library |
@@ -173,31 +177,47 @@ The PostgreSQL user must be a superuser so that the test runner can create the
 
 ---
 
-## Optional: split PatientInfo database
+## External trials database (production mode)
 
-`PatientInfo` records can be stored in a separate PostgreSQL database — useful
-when patient data must be isolated for compliance reasons.
+In production, EXACT is a **stateless matching engine** that reads trial data
+from an external database. It does not own or manage the trial schema — the
+external database must already have the correct tables and data.
 
-1. Provision a second PostGIS database.
-2. Set `PATIENT_DB_URL=postgis://user:pass@host:5432/patients` in your `.env`.
-3. Run `python manage.py migrate --database=patients` to create the schema.
+EXACT's local `default` database is used **only** for authentication
+(users and tokens). All `trials` app model reads are routed to the external
+database automatically by `exact.db_router.TrialsDatabaseRouter`.
 
-The `PatientInfoRouter` in `exact/routers.py` routes all `PatientInfo` reads
-and writes to the `patients` DB automatically. Everything else stays in
-`default`.
+### Setup
 
----
+Set the `TRIALS_DATABASE_*` environment variables (or add them to `.env`):
 
-## Optional: async geolocation tasks
+```dotenv
+TRIALS_DATABASE_NAME=cancerbot_trials
+TRIALS_DATABASE_HOST=trials-db.example.com
+TRIALS_DATABASE_USER=readonly_user
+TRIALS_DATABASE_PASSWORD=secret
+TRIALS_DATABASE_PORT=5432
+```
 
-When a `PatientInfo` record has `longitude`/`latitude` but no `geo_point`, the
-`pre_save` signal can dispatch a Celery task to perform the lookup
-asynchronously.
+Then migrate only the local database (auth tables):
 
-To enable:
-1. Start Redis: `redis-server`
-2. Start a Celery worker: `celery -A exact worker -l info`
-3. Set `REDIS_URL` in your `.env`.
+```bash
+python manage.py migrate          # creates auth/token tables in default DB
+python manage.py runserver
+```
 
-For local testing without Celery, set `PULL_COUNTRY_AND_POSTAL_CODE_INLINE=true`
-to run geolocation synchronously during save.
+**Do not** run `migrate --database=trials` — the external schema is managed by
+its owner.
+
+### Standalone / local development
+
+When `TRIALS_DATABASE_NAME` is **not set**, the router is inactive and
+everything uses the single `default` database. This is the mode used for local
+development and testing:
+
+```bash
+python manage.py migrate
+python manage.py seed_reference_data   # populates reference data locally
+python manage.py runserver
+```
+
