@@ -1,33 +1,33 @@
 #!/usr/bin/env bash
 # Local end-to-end test: connect to external trials DB + local ctomop patients
 #
-# EXACT reads trials from a remote database and patient profiles from a local
-# ctomop database.  No data seeding required — both databases must already
-# contain the relevant data.
+# Matches patients directly via the EXACT ORM — no web server required.
 #
 # Prerequisites:
-#   1. exact local DB: migrated (python manage.py migrate) — auth/tokens only
+#   1. exact local DB: migrated (python manage.py migrate)
 #   2. Remote trials DB: accessible, contains trials in exact's schema
-#   3. Local ctomop DB: contains patient_info records
+#   3. Local/remote ctomop DB: contains patient_info records
 #
-# Required env vars:
-#   TRIALS_DATABASE_URL  — remote trials database (postgresql://user:pass@host:5432/dbname)
-#   CTOMOP_DATABASE_URL  — local ctomop database (postgresql://user:pass@localhost:5432/ctomop)
-#
-# Usage (from the exact/ directory):
-#   export TRIALS_DATABASE_URL=postgresql://user:pass@remote.host:5432/exact
-#   export CTOMOP_DATABASE_URL=postgresql://user:pass@localhost:5432/ctomop
-#   bash scripts/local_e2e_test.sh
+# Required env vars (set in .env or export manually):
+#   TRIALS_DATABASE_URL  — remote trials database
+#   CTOMOP_DATABASE_URL  — ctomop patient database
 #
 # Options:
-#   EXACT_PORT=9000            — override the API port (default: 8000)
 #   PERSON_IDS=1,2,3           — specific person IDs to test (default: all)
 
 set -e
 
+# Load environment variables from .env if present
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(dirname "$SCRIPT_DIR")"
+if [ -f "$ROOT_DIR/.env" ]; then
+  set -o allexport
+  # shellcheck source=../.env
+  source "$ROOT_DIR/.env"
+  set +o allexport
+fi
+
 CTOMOP_DB="${CTOMOP_DATABASE_URL:-}"
-EXACT_PORT="${EXACT_PORT:-8000}"
-EXACT_URL="http://localhost:${EXACT_PORT}"
 PERSON_IDS="${PERSON_IDS:-}"
 
 # ── Validate ──────────────────────────────────────────────────────────
@@ -57,57 +57,17 @@ print(count)
 echo "  Trials available: $TRIAL_COUNT"
 
 if [ "$TRIAL_COUNT" = "0" ]; then
-  echo "ERROR: No trials found in the remote database. Check your TRIALS_DATABASE_* settings." >&2
+  echo "ERROR: No trials found in the remote database. Check TRIALS_DATABASE_URL." >&2
   exit 1
 fi
 
 echo ""
 echo "=============================================="
-echo "Step 2: Create an exact API token"
-echo "=============================================="
-EXACT_TOKEN=$(python manage.py shell -c "
-from django.contrib.auth.models import User
-from rest_framework.authtoken.models import Token
-user, _ = User.objects.get_or_create(username='testrunner', defaults={'is_staff': False})
-if not user.has_usable_password():
-    user.set_password('testrunner')
-    user.save()
-token, _ = Token.objects.get_or_create(user=user)
-print(token.key)
-" 2>/dev/null | grep -E '^[a-f0-9]{40}$')
-echo "  Token: $EXACT_TOKEN"
-
-echo ""
-echo "=============================================="
-echo "Step 3: Start exact dev server (background)"
-echo "=============================================="
-python manage.py runserver "$EXACT_PORT" &
-DJANGO_PID=$!
-echo "  exact running on $EXACT_URL (PID $DJANGO_PID)"
-
-# Ensure the server is stopped on exit
-trap "kill $DJANGO_PID 2>/dev/null; exit" INT TERM EXIT
-
-# Wait for server to be ready
-echo "  Waiting for server..."
-for i in $(seq 1 20); do
-  if curl -sf "$EXACT_URL/swagger/" -o /dev/null 2>/dev/null; then
-    echo "  Server ready."
-    break
-  fi
-  sleep 1
-done
-
-echo ""
-echo "=============================================="
-echo "Step 4: Run search for ctomop patients"
+echo "Step 2: Run search for ctomop patients (direct DB)"
 echo "=============================================="
 SEARCH_ARGS=(
   --source-db-url "$CTOMOP_DB"
-  --api-url "$EXACT_URL"
-  --api-token "$EXACT_TOKEN"
   --limit 20
-  --sort matchScore
   --output /tmp/exact_local_test_results.json
 )
 
@@ -119,7 +79,7 @@ python manage.py search_trials_for_ctomop_patients "${SEARCH_ARGS[@]}"
 
 echo ""
 echo "=============================================="
-echo "Step 5: Summary"
+echo "Step 3: Summary"
 echo "=============================================="
 python manage.py shell -c "
 import json
@@ -139,7 +99,3 @@ for r in results:
 
 echo ""
 echo "Full results written to /tmp/exact_local_test_results.json"
-echo ""
-echo "Press Ctrl+C to stop the exact server."
-trap - INT TERM EXIT  # restore default traps before wait
-wait $DJANGO_PID

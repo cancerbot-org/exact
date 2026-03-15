@@ -1,18 +1,16 @@
 """
 Management command: search_trials_for_ctomop_patients
 
-Reads PatientInfo records from a ctomop database (via direct DB access or the
-ctomop REST API) and calls the exact Trials Search API for each patient, then
-writes a summary of results.
+Reads PatientInfo records directly from a ctomop database (or ctomop REST API)
+and matches them against the trials database using the EXACT matching engine
+in-process — no web server required.
 
 Source modes
 ------------
-DB mode (default) — recommended when you have direct PostgreSQL access:
+DB mode (default):
 
     python manage.py search_trials_for_ctomop_patients \\
-      --source-db-url postgresql://user:pass@host:5432/ctomop \\
-      --api-url http://localhost:8000 \\
-      --api-token <exact-token>
+      --source-db-url postgresql://user:pass@host:5432/ctomop
 
     Falls back to CTOMOP_DATABASE_URL env var if --source-db-url is not given.
 
@@ -22,26 +20,20 @@ API mode — use when only HTTP access to ctomop is available:
       --use-api \\
       --source-api-url http://ctomop.example.com \\
       --source-api-username admin \\
-      --source-api-password secret \\
-      --api-url http://localhost:8000 \\
-      --api-token <exact-token>
-
-    Falls back to CTOMOP_API_URL / CTOMOP_API_USERNAME / CTOMOP_API_PASSWORD env
-    vars when the corresponding flags are omitted.
+      --source-api-password secret
 
 Common options
 --------------
     --person-ids 1,2,3      # optional: filter to specific person IDs
     --batch-size 100        # rows per DB fetch (DB mode only)
-    --limit 50              # max trials per patient from exact API
-    --sort matchScore
+    --limit 50              # max trials to return per patient
     --benefit-weight 25.0
     --patient-burden-weight 25.0
     --risk-weight 25.0
     --distance-penalty-weight 25.0
     --output results.json   # write full JSON output to file
     --format json|csv
-    --dry-run               # print first patient's request body and exit
+    --dry-run               # print first patient's parsed data and exit
 """
 import csv
 import json
@@ -54,13 +46,14 @@ from decimal import Decimal
 import requests
 
 from django.core.management.base import BaseCommand
+from trials.services.user_to_trial_attr_matcher import UserToTrialAttrMatcher
 
 logger = logging.getLogger(__name__)
 
 # ------------------------------------------------------------------
-# Columns to skip when building the exact API request body.
+# Columns to skip when building the PatientInfo object.
 # These are ctomop-only / legacy / computed fields that do not map
-# to exact's PatientInfo and would confuse the matching engine.
+# to EXACT's PatientInfo and would confuse the matching engine.
 # ------------------------------------------------------------------
 SKIP_COLUMNS = frozenset({
     # PKs / FKs
@@ -91,45 +84,37 @@ JSON_FIELDS = frozenset({
 })
 
 
-def _to_camel_case(snake: str) -> str:
-    parts = snake.split('_')
-    return parts[0] + ''.join(p.capitalize() for p in parts[1:])
+def _build_patient_info(row: dict):
+    """Convert a ctomop patient_info row directly into an in-memory PatientInfo.
 
-
-def _build_patient_info_body(row: dict) -> dict:
-    """Convert a ctomop patient_info row / API dict to the exact API request body.
-
-    - Skips ctomop-only and internal columns
-    - Skips NULL / None values
-    - Converts snake_case keys to camelCase
-    - Ensures JSON fields are proper Python objects
-    - Converts date objects to ISO strings
+    Uses the same normalization pipeline as the web service (normalize_patient_info)
+    so all derived fields (BMI, geo_point, refractory_status, tp53_disruption, etc.)
+    are computed identically to what the API would produce.
     """
-    body = {}
+    from trials.services.patient_info.resolve import _build_in_memory
+
+    # Strip ctomop-only columns; decode any JSON-as-string fields
+    cleaned = {}
     for col, val in row.items():
         if col in SKIP_COLUMNS:
             continue
         if val is None:
             continue
-
-        if col in JSON_FIELDS:
-            if isinstance(val, str):
-                try:
-                    val = json.loads(val)
-                except (json.JSONDecodeError, TypeError):
-                    val = [val] if val else []
-            if not val:
-                continue
-
+        if col in JSON_FIELDS and isinstance(val, str):
+            try:
+                val = json.loads(val)
+            except (json.JSONDecodeError, TypeError):
+                val = [val] if val else []
+        if not val and col in JSON_FIELDS:
+            continue
         if isinstance(val, date):
             val = val.isoformat()
-
         if isinstance(val, Decimal):
             val = float(val)
+        cleaned[col] = val
 
-        body[_to_camel_case(col)] = val
-
-    return body
+    # _build_in_memory handles snake_case→PatientInfo + normalize_patient_info
+    return _build_in_memory(cleaned)
 
 
 class Command(BaseCommand):
@@ -174,21 +159,6 @@ class Command(BaseCommand):
             help='ctomop API password (Basic auth). Falls back to CTOMOP_API_PASSWORD.',
         )
 
-        # --- Exact API ---
-        parser.add_argument(
-            '--api-url',
-            type=str,
-            default=os.environ.get('EXACT_API_URL', 'http://localhost:8000'),
-            help='Base URL of the exact API. Falls back to EXACT_API_URL env var.',
-        )
-        parser.add_argument(
-            '--api-token',
-            type=str,
-            default=os.environ.get('EXACT_API_TOKEN', ''),
-            help='Authentication token for the exact API. '
-                 'Falls back to EXACT_API_TOKEN env var.',
-        )
-
         # --- Filtering ---
         parser.add_argument(
             '--person-ids',
@@ -208,17 +178,7 @@ class Command(BaseCommand):
             '--limit',
             type=int,
             default=50,
-            help='Max trials to return per patient from the exact API (default: 50)',
-        )
-        parser.add_argument(
-            '--sort',
-            type=str,
-            default='matchScore',
-            choices=[
-                'matchScore', 'goodnessScore', 'distance',
-                'status', 'phase', 'updated', 'enrollment', 'patientBurdenScore',
-            ],
-            help='Sort order for trial results (default: matchScore)',
+            help='Max trials to return per patient (default: 50)',
         )
 
         # --- Goodness score weights ---
@@ -362,22 +322,9 @@ class Command(BaseCommand):
     # ------------------------------------------------------------------
 
     def handle(self, *args, **options):
-        api_url = options['api_url'].rstrip('/')
-        api_token = options['api_token']
-        if not api_token and not options['dry_run']:
-            self.stderr.write(self.style.ERROR(
-                'No exact API token. Use --api-token or set EXACT_API_TOKEN.'
-            ))
-            return
-
         person_ids = []
         if options['person_ids']:
             person_ids = [int(x.strip()) for x in options['person_ids'].split(',') if x.strip()]
-
-        exact_session = requests.Session()
-        if api_token:
-            exact_session.headers['Authorization'] = f'Token {api_token}'
-        exact_session.headers['Content-Type'] = 'application/json'
 
         if options['use_api']:
             rows = self._fetch_via_api(options, person_ids)
@@ -399,22 +346,19 @@ class Command(BaseCommand):
                 self.stdout.write(f'  Skipping person_id={person_id} (no disease set)')
                 continue
 
-            patient_info_body = _build_patient_info_body(dict(row))
-
             if options['dry_run']:
                 self.stdout.write(
                     f'person_id={person_id}, disease={disease}\n'
-                    f'Request body:\n'
-                    f'{json.dumps({"patient_info": patient_info_body}, indent=2, default=str)}'
+                    f'Row keys: {list(row.keys())}'
                 )
                 return
 
             try:
-                result = self._search_trials(
-                    exact_session, api_url,
-                    patient_info_body,
+                result = self._search_trials_direct(
+                    row=dict(row),
+                    person_id=person_id,
+                    disease=disease,
                     limit=options['limit'],
-                    sort=options['sort'],
                     benefit_weight=options['benefit_weight'],
                     patient_burden_weight=options['patient_burden_weight'],
                     risk_weight=options['risk_weight'],
@@ -435,10 +379,7 @@ class Command(BaseCommand):
                     last_update=options['last_update'],
                     first_enrolment=options['first_enrolment'],
                 )
-                result['person_id'] = person_id
-                result['disease'] = disease
                 all_results.append(result)
-
                 self._print_patient_summary(result)
                 processed += 1
 
@@ -589,76 +530,113 @@ class Command(BaseCommand):
         return rows
 
     # ------------------------------------------------------------------
-    # Trial search
+    # Direct trial search (in-process, no HTTP)
     # ------------------------------------------------------------------
 
-    def _search_trials(self, session, api_url, patient_info_body, limit, sort,
-                       benefit_weight=25.0, patient_burden_weight=25.0,
-                       risk_weight=25.0, distance_penalty_weight=25.0,
-                       search_title='', recruitment_status='', sponsor='',
-                       register='', trial_type='', study_type='', study_id='',
-                       validated_only=False, distance=None, distance_units='km',
-                       country='', region='', postal_code='',
-                       last_update='', first_enrolment=''):
-        """Call GET /trials/ with patient_info body. Returns summary dict."""
-        url = f'{api_url}/trials/'
-        params = {
-            'limit': limit,
-            'sort': sort,
-            'page': 1,
-            'benefitWeight': benefit_weight,
-            'patientBurdenWeight': patient_burden_weight,
-            'riskWeight': risk_weight,
-            'distancePenaltyWeight': distance_penalty_weight,
-        }
-        if search_title:
-            params['searchTitle'] = search_title
-        if recruitment_status:
-            params['recruitmentStatus'] = recruitment_status
-        if sponsor:
-            params['sponsor'] = sponsor
-        if register:
-            params['register'] = register
-        if trial_type:
-            params['trialType'] = trial_type
-        if study_type:
-            params['studyType'] = study_type
-        if study_id:
-            params['studyId'] = study_id
-        if validated_only:
-            params['validatedOnly'] = 'true'
-        if distance is not None:
-            params['distance'] = distance
-            params['distanceUnits'] = distance_units
-        if country:
-            params['country'] = country
-        if region:
-            params['region'] = region
-        if postal_code:
-            params['postalCode'] = postal_code
-        if last_update:
-            params['lastUpdate'] = last_update
-        if first_enrolment:
-            params['firstEnrolment'] = first_enrolment
+    def _search_trials_direct(self, row: dict, person_id, disease, limit: int,
+                               benefit_weight=25.0, patient_burden_weight=25.0,
+                               risk_weight=25.0, distance_penalty_weight=25.0,
+                               search_title='', recruitment_status='', sponsor='',
+                               register='', trial_type='', study_type='', study_id='',
+                               validated_only=False, distance=None, distance_units='km',
+                               country='', region='', postal_code='',
+                               last_update='', first_enrolment=''):
+        """Match trials against a ctomop patient row using the EXACT ORM directly.
 
-        resp = session.get(url, params=params, json={'patient_info': patient_info_body}, timeout=30)
-        resp.raise_for_status()
-        data = resp.json()
+        This replicates the full web-service pipeline in-process:
+          1. _build_patient_info() → normalize_patient_info() — same derived-field
+             computation as the API (BMI, geo_point, tp53_disruption, etc.)
+          2. Trial.objects.filtered_trials() — identical eligibility queryset
+          3. with_goodness_score_optimized() — identical scoring
+          4. trial.matching_type(pi) — identical eligible/potential classification
+        """
+        from trials.models import Trial
+        from trials.services.study_preferences import StudyPreferences
 
-        trials = data.get('results', [])
-        total = data.get('itemsTotalCount', 0)
+        pi = _build_patient_info(row)
 
-        eligible = [t for t in trials if t.get('matchingType') == 'eligible']
-        potential = [t for t in trials if t.get('matchingType') == 'potential']
-        scores = [t.get('matchScore') for t in trials if t.get('matchScore') is not None]
+        study_prefs = StudyPreferences(
+            search_title=search_title or None,
+            sponsor=sponsor or None,
+            register=register or None,
+            study_id=study_id or None,
+            trial_type=trial_type or None,
+            study_type=study_type or None,
+            recruitment_status=recruitment_status or None,
+            country=country or None,
+            region=region or None,
+            postal_code=postal_code or None,
+            distance=distance,
+            distance_units=distance_units,
+            validated_only=validated_only,
+            last_update=last_update or None,
+            first_enrolment=first_enrolment or None,
+        )
+
+        queryset = Trial.objects.all()
+        queryset, _ = queryset.filtered_trials(
+            search_options={},
+            study_info=study_prefs,
+            patient_info=pi,
+            add_traces=False,
+        )
+        queryset = queryset.with_goodness_score_optimized(
+            benefit_weight=benefit_weight,
+            patient_burden_weight=patient_burden_weight,
+            risk_weight=risk_weight,
+            distance_penalty_weight=distance_penalty_weight,
+        )
+
+        total = queryset.count()
+        trials_page = list(queryset[:limit])
+
+        eligible = []
+        potential = []
+        scores = []
+        trials_out = []
+
+        for trial in trials_page:
+            matcher = UserToTrialAttrMatcher(trial=trial, patient_info=pi)
+            match_type = matcher.trial_match_status()
+            # 'not_eligible' means filtered_trials() shouldn't have returned it, skip
+            if match_type == 'not_eligible':
+                continue
+            match_score = matcher.trial_match_score()
+            goodness_score = getattr(trial, 'goodness_score', None)
+            if match_score is not None:
+                scores.append(match_score)
+            trial_data = {
+                'studyId': trial.study_id,
+                'briefTitle': trial.brief_title,
+                'officialTitle': trial.official_title,
+                'matchingType': match_type,
+                'matchScore': match_score,
+                'goodnessScore': goodness_score,
+                'recruitmentStatus': trial.recruitment_status,
+                'phase': trial.phases,
+                'studyType': trial.study_type,
+                'sponsor': trial.sponsor_name,
+                'link': trial.link,
+                'disease': trial.disease,
+                'register': trial.register,
+            }
+            trials_out.append(trial_data)
+            if match_type == 'eligible':
+                eligible.append(trial_data)
+            else:
+                potential.append(trial_data)
 
         return {
+            'person_id': person_id,
+            'disease': disease,
             'total_trials': total,
-            'returned_trials': len(trials),
+            'returned_trials': len(trials_page),
             'eligible_count': len(eligible),
             'potential_count': len(potential),
             'best_match_score': max(scores) if scores else None,
-            'trials': trials,
+            'eligible_trials': eligible,
+            'potential_trials': potential,
+            'trials': trials_out,
         }
 
     def _print_patient_summary(self, result):
