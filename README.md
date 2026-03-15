@@ -15,7 +15,6 @@ The only data EXACT stores locally is authentication (users and tokens).
 | [docs/overview.md](docs/overview.md) | Architecture, key components, data flow |
 | [docs/setup.md](docs/setup.md) | Local development setup |
 | [docs/api.md](docs/api.md) | REST API reference |
-| [docs/data-migration.md](docs/data-migration.md) | Migrating trial data from CancerBot |
 
 ## Quick start (connecting to an existing trials database)
 
@@ -26,7 +25,7 @@ pip install -r requirements.txt
 python manage.py migrate
 
 # Point to the external trials database
-export TRIALS_DATABASE_URL=postgresql://readonly:secret@trials-db.example.com:5432/cancerbot_trials
+export TRIALS_DATABASE_URL=postgresql://readonly:secret@trials-db.example.com:5432/trials
 
 python manage.py runserver
 ```

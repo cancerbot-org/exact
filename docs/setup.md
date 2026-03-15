@@ -188,7 +188,7 @@ database automatically by `exact.db_router.TrialsDatabaseRouter`.
 Set the `TRIALS_DATABASE_URL` environment variable (or add it to `.env`):
 
 ```dotenv
-TRIALS_DATABASE_URL=postgresql://readonly_user:secret@trials-db.example.com:5432/cancerbot_trials
+TRIALS_DATABASE_URL=postgresql://readonly_user:secret@trials-db.example.com:5432/trials
 ```
 
 Then migrate only the local database (auth tables):
