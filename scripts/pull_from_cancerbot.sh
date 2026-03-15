@@ -30,22 +30,4 @@ echo "========================================"
 python manage.py seed_reference_data
 
 echo ""
-echo "========================================"
-echo "Step 2: Load trial catalog from CancerBot"
-echo "========================================"
-python manage.py load_trials_from_cancerbot --source-db-url "$SOURCE_URL"
-
-echo ""
-echo "========================================"
-echo "Verification"
-echo "========================================"
-python manage.py shell -c "
-from trials.models import Trial, Location, LocationTrial, Country
-print(f'  Countries : {Country.objects.count()}')
-print(f'  Locations : {Location.objects.count()}')
-print(f'  Trials    : {Trial.objects.count()}')
-print(f'  Links     : {LocationTrial.objects.count()}')
-"
-
-echo ""
 echo "Done."
