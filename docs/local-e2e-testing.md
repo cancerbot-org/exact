@@ -26,7 +26,7 @@ python manage.py migrate
 From the `exact/` directory:
 
 ```bash
-export CTOMOP_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/ctomop_local
+export PATIENT_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/ctomop_local
 
 bash scripts/local_e2e_test.sh
 ```
@@ -78,10 +78,10 @@ python manage.py seed_test_trials --clear
 ```bash
 cd /path/to/ctomop
 
-DATABASE_URL=$CTOMOP_DATABASE_URL python manage.py seed_test_patients
+DATABASE_URL=$PATIENT_DATABASE_URL python manage.py seed_test_patients
 
 # Verify
-DATABASE_URL=$CTOMOP_DATABASE_URL python manage.py shell -c "
+DATABASE_URL=$PATIENT_DATABASE_URL python manage.py shell -c "
 from omop_core.models import PatientInfo
 for pi in PatientInfo.objects.filter(person_id__gte=9001):
     print(pi.person_id, '|', pi.disease, '|', 'age', pi.patient_age)
@@ -91,7 +91,7 @@ for pi in PatientInfo.objects.filter(person_id__gte=9001):
 To wipe and re-seed:
 
 ```bash
-DATABASE_URL=$CTOMOP_DATABASE_URL python manage.py seed_test_patients --clear
+DATABASE_URL=$PATIENT_DATABASE_URL python manage.py seed_test_patients --clear
 ```
 
 ### Run the search manually
@@ -103,7 +103,7 @@ cd /path/to/exact
 python manage.py drf_create_token testrunner
 
 python manage.py search_trials_for_ctomop_patients \
-  --source-db-url "$CTOMOP_DATABASE_URL" \
+  --source-db-url "$PATIENT_DATABASE_URL" \
   --api-url http://localhost:8000 \
   --api-token <your-token> \
   --person-ids "9001,9002,9003,9004,9005,9006,9007" \
@@ -170,5 +170,5 @@ Exact scores will vary. If a patient returns 0 trials, check:
 python manage.py seed_test_trials --clear
 
 # Remove test patients from ctomop
-DATABASE_URL=$CTOMOP_DATABASE_URL python manage.py seed_test_patients --clear
+DATABASE_URL=$PATIENT_DATABASE_URL python manage.py seed_test_patients --clear
 ```

@@ -17,35 +17,35 @@ python manage.py search_trials_for_ctomop_patients \
 
 # Specific patients only
 python manage.py search_trials_for_ctomop_patients \
-  --source-db-url $CTOMOP_DATABASE_URL \
+  --source-db-url $PATIENT_DATABASE_URL \
   --api-url $EXACT_API_URL \
   --api-token $EXACT_API_TOKEN \
   --person-ids 42,107,883
 
 # Save full trial details to JSON
 python manage.py search_trials_for_ctomop_patients \
-  --source-db-url $CTOMOP_DATABASE_URL \
+  --source-db-url $PATIENT_DATABASE_URL \
   --api-url $EXACT_API_URL \
   --api-token $EXACT_API_TOKEN \
   --output results.json
 
 # Save compact summary to CSV
 python manage.py search_trials_for_ctomop_patients \
-  --source-db-url $CTOMOP_DATABASE_URL \
+  --source-db-url $PATIENT_DATABASE_URL \
   --api-url $EXACT_API_URL \
   --api-token $EXACT_API_TOKEN \
   --output results.csv --format csv
 
 # Preview request body for the first patient without calling the exact API
 python manage.py search_trials_for_ctomop_patients \
-  --source-db-url $CTOMOP_DATABASE_URL \
+  --source-db-url $PATIENT_DATABASE_URL \
   --api-url $EXACT_API_URL \
   --api-token $EXACT_API_TOKEN \
   --dry-run
 
 # Custom goodness score weights
 python manage.py search_trials_for_ctomop_patients \
-  --source-db-url $CTOMOP_DATABASE_URL \
+  --source-db-url $PATIENT_DATABASE_URL \
   --api-url $EXACT_API_URL \
   --api-token $EXACT_API_TOKEN \
   --benefit-weight 40 \
@@ -88,7 +88,7 @@ python manage.py search_trials_for_ctomop_patients \
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--source-db-url` | `CTOMOP_DATABASE_URL` env var | PostgreSQL connection URL for the ctomop database |
+| `--source-db-url` | `PATIENT_DATABASE_URL` env var | PostgreSQL connection URL for the ctomop database |
 
 ### Source — API mode
 
@@ -174,7 +174,7 @@ Example — prioritise benefit, de-emphasise distance:
 
 ```bash
 python manage.py search_trials_for_ctomop_patients \
-  --source-db-url $CTOMOP_DATABASE_URL \
+  --source-db-url $PATIENT_DATABASE_URL \
   --api-url $EXACT_API_URL \
   --api-token $EXACT_API_TOKEN \
   --sort goodnessScore \
@@ -301,7 +301,7 @@ The following ctomop-specific and internal columns are excluded from the exact A
 
 ```bash
 # DB mode
-export CTOMOP_DATABASE_URL=postgresql://user:pass@host:5432/ctomop
+export PATIENT_DATABASE_URL=postgresql://user:pass@host:5432/ctomop
 
 # API mode
 export CTOMOP_API_URL=https://ctomop.example.com
@@ -329,7 +329,7 @@ export EXACT_API_TOKEN=9944b09199c62bcf9418ad846dd0e4bbdfc6ee4b
 ## Full workflow example
 
 ```bash
-export CTOMOP_DATABASE_URL=postgresql://user:pass@host:5432/ctomop
+export PATIENT_DATABASE_URL=postgresql://user:pass@host:5432/ctomop
 export EXACT_API_URL=https://exact.example.com
 export EXACT_USER=admin
 export EXACT_PASSWORD=secret
@@ -344,7 +344,7 @@ export EXACT_API_TOKEN=$(
 
 # 2. Run the search (DB mode)
 python manage.py search_trials_for_ctomop_patients \
-  --source-db-url "$CTOMOP_DATABASE_URL" \
+  --source-db-url "$PATIENT_DATABASE_URL" \
   --api-url "$EXACT_API_URL" \
   --api-token "$EXACT_API_TOKEN" \
   --output results.json

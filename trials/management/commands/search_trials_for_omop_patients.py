@@ -12,7 +12,7 @@ Usage:
 
     # Filter patients and write full JSON output
     python manage.py search_trials_for_omop_patients \\
-      --source-db-url $EXACTOMOP_DATABASE_URL \\
+      --source-db-url $EXAPATIENT_DATABASE_URL \\
       --api-url $EXACT_API_URL \\
       --api-token $EXACT_API_TOKEN \\
       --person-ids 1,2,3 \\
@@ -20,7 +20,7 @@ Usage:
 
     # Dry run — print the request body for the first patient
     python manage.py search_trials_for_omop_patients \\
-      --source-db-url $EXACTOMOP_DATABASE_URL \\
+      --source-db-url $EXAPATIENT_DATABASE_URL \\
       --api-url $EXACT_API_URL \\
       --api-token $EXACT_API_TOKEN \\
       --dry-run
@@ -117,9 +117,9 @@ class Command(BaseCommand):
         parser.add_argument(
             '--source-db-url',
             type=str,
-            default=os.environ.get('EXACTOMOP_DATABASE_URL', ''),
+            default=os.environ.get('EXAPATIENT_DATABASE_URL', ''),
             help='PostgreSQL connection URL for the exactomop database. '
-                 'Falls back to EXACTOMOP_DATABASE_URL env var.',
+                 'Falls back to EXAPATIENT_DATABASE_URL env var.',
         )
         parser.add_argument(
             '--api-url',
@@ -301,7 +301,7 @@ class Command(BaseCommand):
         source_db_url = options['source_db_url']
         if not source_db_url:
             self.stderr.write(self.style.ERROR(
-                'No source DB URL. Use --source-db-url or set EXACTOMOP_DATABASE_URL.'
+                'No source DB URL. Use --source-db-url or set EXAPATIENT_DATABASE_URL.'
             ))
             return
 
