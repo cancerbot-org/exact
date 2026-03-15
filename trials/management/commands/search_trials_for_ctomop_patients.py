@@ -12,7 +12,7 @@ DB mode (default):
     python manage.py search_trials_for_ctomop_patients \\
       --source-db-url postgresql://user:pass@host:5432/ctomop
 
-    Falls back to CTOMOP_DATABASE_URL env var if --source-db-url is not given.
+    Falls back to PATIENT_DATABASE_URL env var if --source-db-url is not given.
 
 API mode — use when only HTTP access to ctomop is available:
 
@@ -128,9 +128,9 @@ class Command(BaseCommand):
         parser.add_argument(
             '--source-db-url',
             type=str,
-            default=os.environ.get('CTOMOP_DATABASE_URL', ''),
+            default=os.environ.get('PATIENT_DATABASE_URL', ''),
             help='PostgreSQL connection URL for the ctomop database. '
-                 'Falls back to CTOMOP_DATABASE_URL env var.',
+                 'Falls back to PATIENT_DATABASE_URL env var.',
         )
 
         # --- Source: API mode ---
@@ -417,7 +417,7 @@ class Command(BaseCommand):
         source_db_url = options['source_db_url']
         if not source_db_url:
             self.stderr.write(self.style.ERROR(
-                'No source DB URL. Use --source-db-url or set CTOMOP_DATABASE_URL.'
+                'No source DB URL. Use --source-db-url or set PATIENT_DATABASE_URL.'
             ))
             return None
 

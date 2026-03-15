@@ -10,7 +10,7 @@
 #
 # Required env vars (set in .env or export manually):
 #   TRIALS_DATABASE_URL  — remote trials database
-#   CTOMOP_DATABASE_URL  — ctomop patient database
+#   PATIENT_DATABASE_URL  — ctomop patient database
 #
 # Options:
 #   PERSON_IDS=1,2,3           — specific person IDs to test (default: all)
@@ -27,13 +27,13 @@ if [ -f "$ROOT_DIR/.env" ]; then
   set +o allexport
 fi
 
-CTOMOP_DB="${CTOMOP_DATABASE_URL:-}"
+CTOMOP_DB="${PATIENT_DATABASE_URL:-}"
 PERSON_IDS="${PERSON_IDS:-}"
 
 # ── Validate ──────────────────────────────────────────────────────────
 if [ -z "$CTOMOP_DB" ]; then
-  echo "ERROR: Set CTOMOP_DATABASE_URL to point at your ctomop PostgreSQL DB." >&2
-  echo "  export CTOMOP_DATABASE_URL=postgresql://user:pass@localhost:5432/ctomop" >&2
+  echo "ERROR: Set PATIENT_DATABASE_URL to point at your ctomop PostgreSQL DB." >&2
+  echo "  export PATIENT_DATABASE_URL=postgresql://user:pass@localhost:5432/ctomop" >&2
   exit 1
 fi
 

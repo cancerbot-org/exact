@@ -13,35 +13,35 @@ python manage.py search_trials_for_omop_patients \
 
 # Specific patients only
 python manage.py search_trials_for_omop_patients \
-  --source-db-url $EXACTOMOP_DATABASE_URL \
+  --source-db-url $EXAPATIENT_DATABASE_URL \
   --api-url $EXACT_API_URL \
   --api-token $EXACT_API_TOKEN \
   --person-ids 42,107,883
 
 # Save full trial details to JSON
 python manage.py search_trials_for_omop_patients \
-  --source-db-url $EXACTOMOP_DATABASE_URL \
+  --source-db-url $EXAPATIENT_DATABASE_URL \
   --api-url $EXACT_API_URL \
   --api-token $EXACT_API_TOKEN \
   --output results.json
 
 # Save compact summary to CSV
 python manage.py search_trials_for_omop_patients \
-  --source-db-url $EXACTOMOP_DATABASE_URL \
+  --source-db-url $EXAPATIENT_DATABASE_URL \
   --api-url $EXACT_API_URL \
   --api-token $EXACT_API_TOKEN \
   --output results.csv --format csv
 
 # Preview request body for the first patient without calling the API
 python manage.py search_trials_for_omop_patients \
-  --source-db-url $EXACTOMOP_DATABASE_URL \
+  --source-db-url $EXAPATIENT_DATABASE_URL \
   --api-url $EXACT_API_URL \
   --api-token $EXACT_API_TOKEN \
   --dry-run
 
 # Custom goodness score weights (benefit/patient-burden/risk/distance, default 25 each)
 python manage.py search_trials_for_omop_patients \
-  --source-db-url $EXACTOMOP_DATABASE_URL \
+  --source-db-url $EXAPATIENT_DATABASE_URL \
   --api-url $EXACT_API_URL \
   --api-token $EXACT_API_TOKEN \
   --benefit-weight 40 \
@@ -55,7 +55,7 @@ python manage.py search_trials_for_omop_patients \
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--source-db-url` | `EXACTOMOP_DATABASE_URL` env var | PostgreSQL connection URL for the exactomop database |
+| `--source-db-url` | `EXAPATIENT_DATABASE_URL` env var | PostgreSQL connection URL for the exactomop database |
 | `--api-url` | `EXACT_API_URL` env var or `http://localhost:8000` | Base URL of the exact API |
 | `--api-token` | `EXACT_API_TOKEN` env var | API authentication token |
 | `--person-ids` | all | Comma-separated person IDs to process |
@@ -102,7 +102,7 @@ Example — prioritise benefit, de-emphasise distance:
 
 ```bash
 python manage.py search_trials_for_omop_patients \
-  --source-db-url $EXACTOMOP_DATABASE_URL \
+  --source-db-url $EXAPATIENT_DATABASE_URL \
   --api-url $EXACT_API_URL \
   --api-token $EXACT_API_TOKEN \
   --sort goodnessScore \
@@ -302,14 +302,14 @@ Run the full workflow:
 export EXACT_USER=admin
 export EXACT_PASSWORD=secret
 export EXACT_API_URL=http://localhost:8000
-export EXACTOMOP_DATABASE_URL=postgresql://user:pass@host:5432/exactomop
+export EXAPATIENT_DATABASE_URL=postgresql://user:pass@host:5432/exactomop
 
 # 1. Get token
 source get_token.sh
 
 # 2. Run the search
 python manage.py search_trials_for_omop_patients \
-  --source-db-url "$EXACTOMOP_DATABASE_URL" \
+  --source-db-url "$EXAPATIENT_DATABASE_URL" \
   --api-url "$EXACT_API_URL" \
   --api-token "$EXACT_API_TOKEN" \
   --output results.json
@@ -320,7 +320,7 @@ python manage.py search_trials_for_omop_patients \
 ## Environment variables
 
 ```bash
-export EXACTOMOP_DATABASE_URL=postgresql://user:pass@host:5432/exactomop
+export EXAPATIENT_DATABASE_URL=postgresql://user:pass@host:5432/exactomop
 export EXACT_API_URL=https://exact.example.com
 export EXACT_API_TOKEN=abc123...
 ```
