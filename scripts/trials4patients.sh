@@ -27,11 +27,11 @@ if [ -f "$ROOT_DIR/.env" ]; then
   set +o allexport
 fi
 
-CTOMOP_DB="${PATIENT_DATABASE_URL:-}"
+PATIENT_DB="${PATIENT_DATABASE_URL:-}"
 PERSON_IDS="${PERSON_IDS:-}"
 
 # ── Validate ──────────────────────────────────────────────────────────
-if [ -z "$CTOMOP_DB" ]; then
+if [ -z "$PATIENT_DATABASE_URL" ]; then
   echo "ERROR: Set PATIENT_DATABASE_URL to point at your ctomop PostgreSQL DB." >&2
   echo "  export PATIENT_DATABASE_URL=postgresql://user:pass@localhost:5432/ctomop" >&2
   exit 1
@@ -47,7 +47,7 @@ echo "=============================================="
 echo "Step 1: Verify connectivity"
 echo "=============================================="
 echo "  Trials DB: $TRIALS_DATABASE_URL"
-echo "  CTOMOP DB: $CTOMOP_DB"
+echo "  Patient DB: $PATIENT_DATABASE_URL"
 
 TRIAL_COUNT=$(python manage.py shell -c "
 from trials.models import Trial
@@ -66,7 +66,7 @@ echo "=============================================="
 echo "Step 2: Run search for ctomop patients (direct DB)"
 echo "=============================================="
 SEARCH_ARGS=(
-  --source-db-url "$CTOMOP_DB"
+  --source-db-url "$PATIENT_DATABASE_URL"
   --limit 20
   --output /tmp/exact_local_test_results.json
 )

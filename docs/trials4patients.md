@@ -1,25 +1,7 @@
-# Local end-to-end testing
-
-How to seed fake data and run a full trial search locally, without real patient data.
-
 ## Prerequisites
 
 - exact PostgreSQL DB created and migrated (`python manage.py migrate`)
-- ctomop PostgreSQL DB created and migrated (see below)
-- Both projects checked out locally
 
-## One-time ctomop setup
-
-ctomop's migrations use PostgreSQL-specific SQL and will not run on SQLite.
-Create a local PostgreSQL database for it once:
-
-```bash
-createdb ctomop_local
-
-export DATABASE_URL=postgresql://postgres:postgres@localhost:5432/ctomop_local
-cd /path/to/ctomop
-python manage.py migrate
-```
 
 ## Run the full test
 
@@ -28,7 +10,7 @@ From the `exact/` directory:
 ```bash
 export PATIENT_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/ctomop_local
 
-bash scripts/local_e2e_test.sh
+bash scripts/patients4trials.sh
 ```
 
 The script runs all steps automatically:

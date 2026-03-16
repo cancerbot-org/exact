@@ -14,13 +14,6 @@ DB mode (default):
 
     Falls back to PATIENT_DATABASE_URL env var if --source-db-url is not given.
 
-API mode — use when only HTTP access to ctomop is available:
-
-    python manage.py search_trials_for_ctomop_patients \\
-      --use-api \\
-      --source-api-url http://ctomop.example.com \\
-      --source-api-username admin \\
-      --source-api-password secret
 
 Common options
 --------------
@@ -138,25 +131,6 @@ class Command(BaseCommand):
             '--use-api',
             action='store_true',
             help='Read patients from the ctomop REST API instead of direct DB access.',
-        )
-        parser.add_argument(
-            '--source-api-url',
-            type=str,
-            default=os.environ.get('CTOMOP_API_URL', ''),
-            help='Base URL of the ctomop API (e.g. http://ctomop.example.com). '
-                 'Falls back to CTOMOP_API_URL env var.',
-        )
-        parser.add_argument(
-            '--source-api-username',
-            type=str,
-            default=os.environ.get('CTOMOP_API_USERNAME', ''),
-            help='ctomop API username (Basic auth). Falls back to CTOMOP_API_USERNAME.',
-        )
-        parser.add_argument(
-            '--source-api-password',
-            type=str,
-            default=os.environ.get('CTOMOP_API_PASSWORD', ''),
-            help='ctomop API password (Basic auth). Falls back to CTOMOP_API_PASSWORD.',
         )
 
         # --- Filtering ---
