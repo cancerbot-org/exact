@@ -3,15 +3,47 @@
 ## Prerequisites
 
 - Python 3.12+
-- PostgreSQL 16 with PostGIS
-- GDAL and GEOS libraries (required by PostGIS)
+- PostgreSQL 16 with PostGIS 3.5+
+- GDAL and GEOS libraries (required by GeoDjango / PostGIS)
 - Redis (optional — only needed for async geolocation tasks)
+
+> **Why PostGIS?** EXACT uses geographic queries to match patients with nearby
+> trial sites (distance calculations, point-in-region filters). The database
+> engine is `django.contrib.gis.db.backends.postgis`, so PostGIS must be
+> installed and enabled before migrations can run.
 
 ### macOS (Homebrew)
 
 ```bash
-brew install postgresql@16 postgis gdal
+brew install postgresql@16 postgis gdal geos
 brew services start postgresql@16
+```
+
+### Linux (Debian / Ubuntu)
+
+```bash
+sudo apt-get update
+sudo apt-get install -y postgresql-16 postgresql-16-postgis-3 \
+    gdal-bin libgdal-dev libgeos-dev
+```
+
+### Docker
+
+If you prefer Docker, the official PostGIS image has everything pre-installed:
+
+```bash
+docker run -d --name exact-db \
+  -e POSTGRES_USER=exact -e POSTGRES_PASSWORD=exact -e POSTGRES_DB=exact \
+  -p 5432:5432 postgis/postgis:16-3.5
+```
+
+### Verifying PostGIS
+
+After installing, confirm the extension is available:
+
+```bash
+psql -d exact -c "SELECT PostGIS_Version();"
+# Expected output: 3.5 ...
 ```
 
 ---

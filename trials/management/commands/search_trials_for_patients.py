@@ -1,24 +1,21 @@
 """
-Management command: search_trials_for_ctomop_patients
+Management command: search_trials_for_patients
 
-Reads PatientInfo records directly from a ctomop database (or ctomop REST API)
-and matches them against the trials database using the EXACT matching engine
-in-process — no web server required.
+Reads PatientInfo records from an external patient database and matches them
+against the trials database using the EXACT matching engine in-process — no
+web server required.
 
-Source modes
-------------
-DB mode (default):
-
-    python manage.py search_trials_for_ctomop_patients \\
-      --source-db-url postgresql://user:pass@host:5432/ctomop
+Usage
+-----
+    python manage.py search_trials_for_patients \\
+      --source-db-url postgresql://user:pass@host:5432/patients
 
     Falls back to PATIENT_DATABASE_URL env var if --source-db-url is not given.
-
 
 Common options
 --------------
     --person-ids 1,2,3      # optional: filter to specific person IDs
-    --batch-size 100        # rows per DB fetch (DB mode only)
+    --batch-size 100        # rows per DB fetch
     --limit 50              # max trials to return per patient
     --benefit-weight 25.0
     --patient-burden-weight 25.0
@@ -36,8 +33,6 @@ import sys
 from datetime import date
 from decimal import Decimal
 
-import requests
-
 from django.core.management.base import BaseCommand
 from trials.services.user_to_trial_attr_matcher import UserToTrialAttrMatcher
 
@@ -45,7 +40,7 @@ logger = logging.getLogger(__name__)
 
 # ------------------------------------------------------------------
 # Columns to skip when building the PatientInfo object.
-# These are ctomop-only / legacy / computed fields that do not map
+# These are source-only / legacy / computed fields that do not map
 # to EXACT's PatientInfo and would confuse the matching engine.
 # ------------------------------------------------------------------
 SKIP_COLUMNS = frozenset({
@@ -55,18 +50,18 @@ SKIP_COLUMNS = frozenset({
     'created_at', 'updated_at',
     # PII not needed for trial matching
     'email', 'date_of_birth',
-    # Computed by exact (do not override)
+    # Computed by EXACT (do not override)
     'bmi',
-    # ctomop legacy columns not present in exact
+    # Legacy columns not present in EXACT
     'condition_code_icd_10', 'condition_code_snomed_ct',
     'therapy_lines_count', 'line_of_therapy',
-    # Legacy duplicate lab fields (exact uses named variants)
+    # Legacy duplicate lab fields (EXACT uses named variants)
     'liver_enzyme_levels', 'serum_bilirubin_level',
-    # Legacy viral flags (exact uses no_hiv_status / no_hepatitis_*_status)
+    # Legacy viral flags (EXACT uses no_hiv_status / no_hepatitis_*_status)
     'hiv_status', 'hepatitis_b_status', 'hepatitis_c_status',
-    # PostGIS geography field — ctomop uses lat/lon floats instead
+    # PostGIS geography field — source uses lat/lon floats instead
     'geo_point',
-    # API-only computed fields from PatientInfoSerializer
+    # API-only computed fields
     'patient_name', 'age', 'refractory_status',
 })
 
@@ -78,7 +73,7 @@ JSON_FIELDS = frozenset({
 
 
 def _build_patient_info(row: dict):
-    """Convert a ctomop patient_info row directly into an in-memory PatientInfo.
+    """Convert a patient_info row into an in-memory PatientInfo.
 
     Uses the same normalization pipeline as the web service (normalize_patient_info)
     so all derived fields (BMI, geo_point, refractory_status, tp53_disruption, etc.)
@@ -86,7 +81,7 @@ def _build_patient_info(row: dict):
     """
     from trials.services.patient_info.resolve import _build_in_memory
 
-    # Strip ctomop-only columns; decode any JSON-as-string fields
+    # Strip source-only columns; decode any JSON-as-string fields
     cleaned = {}
     for col, val in row.items():
         if col in SKIP_COLUMNS:
@@ -112,25 +107,17 @@ def _build_patient_info(row: dict):
 
 class Command(BaseCommand):
     help = (
-        'Search exact Trials API for each PatientInfo in a ctomop database '
-        '(direct DB or ctomop REST API) and output matching trial results.'
+        'Read PatientInfo records from an external patient database and match '
+        'them against trials using the EXACT matching engine (in-process).'
     )
 
     def add_arguments(self, parser):
-        # --- Source: DB mode (default) ---
         parser.add_argument(
             '--source-db-url',
             type=str,
             default=os.environ.get('PATIENT_DATABASE_URL', ''),
-            help='PostgreSQL connection URL for the ctomop database. '
+            help='PostgreSQL connection URL for the patient database. '
                  'Falls back to PATIENT_DATABASE_URL env var.',
-        )
-
-        # --- Source: API mode ---
-        parser.add_argument(
-            '--use-api',
-            action='store_true',
-            help='Read patients from the ctomop REST API instead of direct DB access.',
         )
 
         # --- Filtering ---
@@ -144,7 +131,7 @@ class Command(BaseCommand):
             '--batch-size',
             type=int,
             default=100,
-            help='Rows per DB batch fetch — DB mode only (default: 100)',
+            help='Rows per DB batch fetch (default: 100)',
         )
 
         # --- Trial search ---
@@ -198,7 +185,7 @@ class Command(BaseCommand):
         parser.add_argument(
             '--dry-run',
             action='store_true',
-            help='Print the API request body for the first patient and exit',
+            help='Print the parsed data for the first patient and exit',
         )
 
         # --- Study preferences / search filters ---
@@ -300,10 +287,7 @@ class Command(BaseCommand):
         if options['person_ids']:
             person_ids = [int(x.strip()) for x in options['person_ids'].split(',') if x.strip()]
 
-        if options['use_api']:
-            rows = self._fetch_via_api(options, person_ids)
-        else:
-            rows = self._fetch_via_db(options, person_ids)
+        rows = self._fetch_via_db(options, person_ids)
 
         if rows is None:
             return  # error already reported
@@ -374,17 +358,17 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS(f'Results written to: {options["output"]}'))
 
     # ------------------------------------------------------------------
-    # Source: DB mode
+    # Source: DB
     # ------------------------------------------------------------------
 
     def _fetch_via_db(self, options, person_ids):
-        """Yield rows from ctomop's patient_info table via psycopg2."""
+        """Yield rows from the patient_info table via psycopg2."""
         try:
             import psycopg2
             import psycopg2.extras
         except ImportError:
             self.stderr.write(self.style.ERROR(
-                'psycopg2 is required for DB mode. Install it with: pip install psycopg2-binary'
+                'psycopg2 is required. Install it with: pip install psycopg2-binary'
             ))
             return None
 
@@ -404,7 +388,6 @@ class Command(BaseCommand):
         rows = []
         try:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
-                # Join person to get person_id for display / filtering
                 query = '''
                     SELECT pi.*
                     FROM patient_info pi
@@ -430,80 +413,6 @@ class Command(BaseCommand):
         return rows
 
     # ------------------------------------------------------------------
-    # Source: API mode
-    # ------------------------------------------------------------------
-
-    def _fetch_via_api(self, options, person_ids):
-        """Fetch full PatientInfo records from ctomop's REST API."""
-        source_api_url = options['source_api_url'].rstrip('/')
-        username = options['source_api_username']
-        password = options['source_api_password']
-
-        if not source_api_url:
-            self.stderr.write(self.style.ERROR(
-                'No ctomop API URL. Use --source-api-url or set CTOMOP_API_URL.'
-            ))
-            return None
-        if not username or not password:
-            self.stderr.write(self.style.ERROR(
-                'ctomop API requires Basic auth credentials. '
-                'Use --source-api-username / --source-api-password '
-                'or set CTOMOP_API_USERNAME / CTOMOP_API_PASSWORD.'
-            ))
-            return None
-
-        session = requests.Session()
-        session.auth = (username, password)
-
-        # Step 1: list all patients to get their PKs
-        list_url = f'{source_api_url}/api/patient-info/'
-        try:
-            resp = session.get(list_url, timeout=30)
-            resp.raise_for_status()
-        except requests.RequestException as e:
-            self.stderr.write(self.style.ERROR(f'ctomop API list request failed: {e}'))
-            return None
-
-        entries = resp.json()
-        if isinstance(entries, dict):
-            # Handle DRF paginated response
-            entries = entries.get('results', [])
-
-        if person_ids:
-            person_id_set = set(person_ids)
-            entries = [e for e in entries if e.get('person_id') in person_id_set]
-
-        if not entries:
-            self.stdout.write('No patients found.')
-            return []
-
-        self.stdout.write(f'Fetching full data for {len(entries)} patients from ctomop API...')
-
-        rows = []
-        for entry in entries:
-            pk = entry.get('id')
-            person_id = entry.get('person_id')
-            if pk is None:
-                self.stderr.write(self.style.WARNING(
-                    f'Skipping entry without id (person_id={person_id})'
-                ))
-                continue
-
-            try:
-                detail_resp = session.get(f'{source_api_url}/api/patient-info/{pk}/', timeout=30)
-                detail_resp.raise_for_status()
-                row = detail_resp.json()
-                # Ensure person_id is available for filtering / logging
-                row.setdefault('person_id', person_id)
-                rows.append(row)
-            except requests.RequestException as e:
-                self.stderr.write(self.style.ERROR(
-                    f'Failed to fetch patient id={pk} (person_id={person_id}): {e}'
-                ))
-
-        return rows
-
-    # ------------------------------------------------------------------
     # Direct trial search (in-process, no HTTP)
     # ------------------------------------------------------------------
 
@@ -515,14 +424,13 @@ class Command(BaseCommand):
                                validated_only=False, distance=None, distance_units='km',
                                country='', region='', postal_code='',
                                last_update='', first_enrolment=''):
-        """Match trials against a ctomop patient row using the EXACT ORM directly.
+        """Match trials against a patient row using the EXACT ORM directly.
 
-        This replicates the full web-service pipeline in-process:
-          1. _build_patient_info() → normalize_patient_info() — same derived-field
-             computation as the API (BMI, geo_point, tp53_disruption, etc.)
-          2. Trial.objects.filtered_trials() — identical eligibility queryset
-          3. with_goodness_score_optimized() — identical scoring
-          4. trial.matching_type(pi) — identical eligible/potential classification
+        Pipeline:
+          1. _build_patient_info() → normalize_patient_info()
+          2. Trial.objects.filtered_trials() — eligibility queryset
+          3. with_goodness_score_optimized() — scoring
+          4. UserToTrialAttrMatcher — eligible/potential classification
         """
         from trials.models import Trial
         from trials.services.study_preferences import StudyPreferences
@@ -572,7 +480,6 @@ class Command(BaseCommand):
         for trial in trials_page:
             matcher = UserToTrialAttrMatcher(trial=trial, patient_info=pi)
             match_type = matcher.trial_match_status()
-            # 'not_eligible' means filtered_trials() shouldn't have returned it, skip
             if match_type == 'not_eligible':
                 continue
             match_score = matcher.trial_match_score()

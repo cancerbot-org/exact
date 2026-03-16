@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# Local end-to-end test: connect to external trials DB + local ctomop patients
+# Local end-to-end test: match patients against trials via EXACT ORM.
 #
-# Matches patients directly via the EXACT ORM — no web server required.
+# No web server required — runs entirely in-process.
 #
 # Prerequisites:
 #   1. exact local DB: migrated (python manage.py migrate)
-#   2. Remote trials DB: accessible, contains trials in exact's schema
-#   3. Local/remote ctomop DB: contains patient_info records
+#   2. Remote trials DB: accessible, contains trials in EXACT's schema
+#   3. Patient DB: contains patient_info records
 #
 # Required env vars (set in .env or export manually):
-#   TRIALS_DATABASE_URL  — remote trials database
-#   PATIENT_DATABASE_URL  — ctomop patient database
+#   TRIALS_DATABASE_URL   — remote trials database
+#   PATIENT_DATABASE_URL  — patient database
 #
 # Options:
 #   PERSON_IDS=1,2,3           — specific person IDs to test (default: all)
@@ -32,8 +32,8 @@ PERSON_IDS="${PERSON_IDS:-}"
 
 # ── Validate ──────────────────────────────────────────────────────────
 if [ -z "$PATIENT_DATABASE_URL" ]; then
-  echo "ERROR: Set PATIENT_DATABASE_URL to point at your ctomop PostgreSQL DB." >&2
-  echo "  export PATIENT_DATABASE_URL=postgresql://user:pass@localhost:5432/ctomop" >&2
+  echo "ERROR: Set PATIENT_DATABASE_URL to point at your patient PostgreSQL DB." >&2
+  echo "  export PATIENT_DATABASE_URL=postgresql://user:pass@host:5432/patients" >&2
   exit 1
 fi
 
@@ -63,7 +63,7 @@ fi
 
 echo ""
 echo "=============================================="
-echo "Step 2: Run search for ctomop patients (direct DB)"
+echo "Step 2: Run trial search for patients (direct DB)"
 echo "=============================================="
 SEARCH_ARGS=(
   --source-db-url "$PATIENT_DATABASE_URL"
@@ -75,7 +75,7 @@ if [ -n "$PERSON_IDS" ]; then
   SEARCH_ARGS+=(--person-ids "$PERSON_IDS")
 fi
 
-python manage.py search_trials_for_ctomop_patients "${SEARCH_ARGS[@]}"
+python manage.py search_trials_for_patients "${SEARCH_ARGS[@]}"
 
 echo ""
 echo "=============================================="

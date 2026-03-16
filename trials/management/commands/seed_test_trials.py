@@ -4,7 +4,7 @@ Management command: seed_test_trials
 Creates a small set of fake trials for local end-to-end testing.
 Covers all four supported diseases (MM, FL, BC, CLL) with enough
 variation to produce both eligible and potential matches against
-the patients created by ctomop's seed_test_patients command.
+the test patients in the patient database.
 
 Usage:
     python manage.py seed_reference_data   # run first
