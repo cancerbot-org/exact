@@ -147,7 +147,64 @@ Interactive API docs: `http://localhost:8000/swagger/`
 
 ---
 
+## Seeding data
+
+EXACT has two seed commands that populate the local database with reference and
+test data. These are only needed when running in standalone mode (no external
+`TRIALS_DATABASE_URL`).
+
+### Reference data (`seed_reference_data`)
+
+Loads diseases, therapies, markers, medications, trial types, countries, and
+all other taxonomy tables that the matching engine depends on. **Must be run
+before any trial matching will work.**
+
+```bash
+python manage.py seed_reference_data
+# or: make seed
+```
+
+This command is idempotent — safe to re-run at any time.
+
+### Test trials (`seed_test_trials`)
+
+Creates 8 fake trials (2 per disease) for local development and testing.
+Useful when you don't have access to an external trials database:
+
+```bash
+python manage.py seed_test_trials
+```
+
+| Code | Disease | Scenario |
+|------|---------|----------|
+| `TEST-MM-001` | Multiple myeloma | R/R MM — ≥1 prior line required |
+| `TEST-MM-002` | Multiple myeloma | Newly diagnosed — no prior therapy |
+| `TEST-FL-001` | Follicular lymphoma | Treatment-naive |
+| `TEST-FL-002` | Follicular lymphoma | Relapsed — ≥2 prior lines |
+| `TEST-BC-001` | Breast cancer | TNBC |
+| `TEST-BC-002` | Breast cancer | HER2-negative advanced |
+| `TEST-CLL-001` | CLL | R/R — ≥1 prior line required |
+| `TEST-CLL-002` | CLL | Treatment-naive |
+
+To wipe and re-seed:
+
+```bash
+python manage.py seed_test_trials --clear
+```
+
+### Full standalone setup (from scratch)
+
+```bash
+python manage.py migrate
+python manage.py seed_reference_data
+python manage.py seed_test_trials      # optional — only if no external trials DB
+```
+
+---
+
 ## Running tests
+
+### Unit / integration tests (pytest)
 
 ```bash
 make pytest
@@ -161,11 +218,53 @@ To force a fresh schema:
 python -m pytest --create-db
 ```
 
-### Test database setup
+Run a specific test file or test:
 
-The test suite uses `conftest.py` to seed static reference data once per session.
-The PostgreSQL user must be a superuser so that the test runner can create the
-`postgis` extension if needed.
+```bash
+python -m pytest tests/services/test_user_to_trial_attr_matcher.py
+python -m pytest tests/services/test_user_to_trial_attr_matcher.py::test_name -v
+```
+
+#### Test database setup
+
+The test suite uses `conftest.py` to seed static reference data once per
+session (therapies, markers, medications, etc.). The PostgreSQL user must be
+a superuser so that the test runner can create the `postgis` extension if
+needed.
+
+No external databases are required — tests run entirely against the local
+`default` database.
+
+#### Test areas
+
+| Directory | What it covers |
+|-----------|---------------|
+| `tests/services/patient_info/convertors/` | Lab value calculators (eGFR, ULN, bilirubin, etc.) |
+| `tests/services/test_user_to_trial_attr_matcher.py` | Per-trial eligibility scoring |
+| `tests/services/test_user_to_trial_attrs_mapper.py` | Attribute mapping logic |
+| `tests/services/trial_details/` | Trial attribute grouping and templates |
+| `tests/querysets/` | SQL-level trial filtering and scoring |
+| `tests/views/` | API endpoint integration tests |
+
+### End-to-end testing (patient → trial matching)
+
+For testing the full matching pipeline against real or test data, see
+[trials4patients.md](trials4patients.md). Two modes are available:
+
+**With external databases** (requires `TRIALS_DATABASE_URL` and `PATIENT_DATABASE_URL`):
+
+```bash
+bash scripts/trials4patients.sh
+```
+
+**Standalone** (no external databases):
+
+```bash
+python manage.py migrate
+python manage.py seed_reference_data
+python manage.py seed_test_trials
+# Then use the API or Django shell to run matches against the seeded trials
+```
 
 ---
 
