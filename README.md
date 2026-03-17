@@ -15,6 +15,7 @@ The only data EXACT stores locally is authentication (users and tokens).
 | [docs/overview.md](docs/overview.md) | Architecture, key components, data flow |
 | [docs/setup.md](docs/setup.md) | Local development setup |
 | [docs/api.md](docs/api.md) | REST API reference |
+| [docs/trials4patients.md](docs/trials4patients.md) | End-to-end patient→trial matching (CLI) |
 
 ## Quick start (connecting to an existing trials database)
 

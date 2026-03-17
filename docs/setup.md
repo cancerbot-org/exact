@@ -197,6 +197,7 @@ The PostgreSQL user must be a superuser so that the test runner can create the
 | `DATABASE_HOST` | `localhost` | PostgreSQL host |
 | `DATABASE_PORT` | `5432` | PostgreSQL port |
 | `TRIALS_DATABASE_URL` | _(unset)_ | External trials DB URL — enables split-database mode (`postgresql://user:pass@host:5432/db`) |
+| `PATIENT_DATABASE_URL` | _(unset)_ | External patient DB URL — used by `search_trials_for_patients` CLI command |
 | `REDIS_URL` | `redis://localhost:6379` | Redis URL for Celery (only needed for async tasks) |
 | `GDAL_LIBRARY_PATH` | `/opt/homebrew/lib/libgdal.dylib` | Path to GDAL shared library |
 | `GEOS_LIBRARY_PATH` | `/opt/homebrew/lib/libgeos_c.dylib` | Path to GEOS shared library |
