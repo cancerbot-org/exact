@@ -5,7 +5,7 @@
 - Python 3.12+
 - PostgreSQL 16 with PostGIS 3.5+
 - GDAL and GEOS libraries (required by GeoDjango / PostGIS)
-- Redis (optional — only needed for async geolocation tasks)
+- Redis (optional — only needed for async geolocation lookups; all other features work without it)
 
 > **Why PostGIS?** EXACT uses geographic queries to match patients with nearby
 > trial sites (distance calculations, point-in-region filters). The database
@@ -50,10 +50,9 @@ psql -d exact -c "SELECT PostGIS_Version();"
 
 ## First-time setup
 
-### 1. Clone and create a virtual environment
+### 1. Create a virtual environment
 
 ```bash
-git clone <repo-url>
 cd exact
 python -m venv .venv
 source .venv/bin/activate
@@ -90,7 +89,7 @@ Minimum required variables for local development (defaults are usually fine):
 SECRET_KEY=any-local-secret-key
 DATABASE_NAME=exact
 DATABASE_USER=exact
-DATABASE_PASSWORD=
+DATABASE_PASSWORD=          # leave empty — matches the CREATE USER command above
 DATABASE_HOST=localhost
 DATABASE_PORT=5432
 ```
@@ -129,11 +128,15 @@ make seed
 # or: python manage.py seed_reference_data
 ```
 
-### 6. Create a superuser (optional, for Django admin)
+### 6. Create a superuser and API token
 
 ```bash
 make createsuperuser
+# then generate a token for that user:
+python manage.py drf_create_token <username>
 ```
+
+Copy the printed token — you'll need it for every API request.
 
 ### 7. Start the dev server
 
@@ -145,13 +148,34 @@ make runserver
 The API is available at `http://localhost:8000/`.
 Interactive API docs: `http://localhost:8000/swagger/`
 
+### 8. Make your first request
+
+With the test trials seeded (step 5 above), try listing all trials:
+
+```bash
+curl -s http://localhost:8000/trials/ \
+  -H "Authorization: Token <your-token>" \
+  | python -m json.tool | head -40
+```
+
+Or search with a patient profile:
+
+```bash
+curl -s http://localhost:8000/trials/ \
+  -H "Authorization: Token <your-token>" \
+  -H "Content-Type: application/json" \
+  -d '{"patientInfo": {"disease": "multiple myeloma", "patientAge": 60, "priorTherapy": "One line"}}' \
+  | python -m json.tool | head -60
+```
+
+You should see up to 8 ranked trials with `matchScore` and `matchingType` fields.
+
 ---
 
 ## Seeding data
 
 EXACT has two seed commands that populate the local database with reference and
-test data. These are only needed when running in standalone mode (no external
-`TRIALS_DATABASE_URL`).
+test data. These are only needed when running in **standalone mode** (no `TRIALS_DATABASE_URL` set).
 
 ### Reference data (`seed_reference_data`)
 
@@ -168,7 +192,7 @@ This command is idempotent — safe to re-run at any time.
 
 ### Test trials (`seed_test_trials`)
 
-Creates 8 fake trials (2 per disease) for local development and testing.
+Creates 8 fake trials (2 per disease) for standalone mode.
 Useful when you don't have access to an external trials database:
 
 ```bash
@@ -191,6 +215,8 @@ To wipe and re-seed:
 ```bash
 python manage.py seed_test_trials --clear
 ```
+
+See [trials4patients.md](trials4patients.md#standalone-local-testing-no-remote-databases) for how to run matches against these trials.
 
 ### Full standalone setup (from scratch)
 
@@ -333,11 +359,10 @@ python manage.py runserver
 **Do not** run `migrate --database=trials` — the external schema is managed by
 its owner.
 
-### Standalone / local development
+### Standalone mode
 
 When `TRIALS_DATABASE_URL` is **not set**, the router is inactive and
-everything uses the single `default` database. This is the mode used for local
-development and testing:
+everything uses the single `default` database:
 
 ```bash
 python manage.py migrate

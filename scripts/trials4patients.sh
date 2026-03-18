@@ -14,6 +14,7 @@
 #
 # Options:
 #   PERSON_IDS=1,2,3           — specific person IDs to test (default: all)
+#   PATIENT_LIMIT=50           — max number of patients to process (default: all)
 
 set -e
 
@@ -29,6 +30,7 @@ fi
 
 PATIENT_DB="${PATIENT_DATABASE_URL:-}"
 PERSON_IDS="${PERSON_IDS:-}"
+PATIENT_LIMIT="${PATIENT_LIMIT:-}"
 
 # ── Validate ──────────────────────────────────────────────────────────
 if [ -z "$PATIENT_DATABASE_URL" ]; then
@@ -73,6 +75,10 @@ SEARCH_ARGS=(
 
 if [ -n "$PERSON_IDS" ]; then
   SEARCH_ARGS+=(--person-ids "$PERSON_IDS")
+fi
+
+if [ -n "$PATIENT_LIMIT" ]; then
+  SEARCH_ARGS+=(--patient-limit "$PATIENT_LIMIT")
 fi
 
 python manage.py search_trials_for_patients "${SEARCH_ARGS[@]}"

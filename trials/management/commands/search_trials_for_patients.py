@@ -15,6 +15,7 @@ Usage
 Common options
 --------------
     --person-ids 1,2,3      # optional: filter to specific person IDs
+    --patient-limit 100     # max patients to process (default: all)
     --batch-size 100        # rows per DB fetch
     --limit 50              # max trials to return per patient
     --benefit-weight 25.0
@@ -126,6 +127,13 @@ class Command(BaseCommand):
             type=str,
             default='',
             help='Comma-separated person IDs to process (default: all)',
+        )
+        parser.add_argument(
+            '--patient-limit',
+            type=int,
+            default=None,
+            help='Maximum number of patients to process (default: all). '
+                 'Applied before --person-ids filtering.',
         )
         parser.add_argument(
             '--batch-size',
@@ -399,6 +407,9 @@ class Command(BaseCommand):
                     query += f' WHERE p.person_id IN ({placeholders})'
                     params = person_ids
                 query += ' ORDER BY p.person_id'
+                if options.get('patient_limit'):
+                    query += ' LIMIT %s'
+                    params = list(params) + [options['patient_limit']]
 
                 cursor.execute(query, params)
 

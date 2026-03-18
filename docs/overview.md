@@ -13,7 +13,7 @@ passed inline per request; nothing is persisted.
    `Trial` records with 150+ structured eligibility-criteria fields.
 2. **Matches patients to trials** — scores and ranks trials against a patient's
    profile using a disease-aware attribute matching algorithm.
-3. **Exposes a REST API** — callers send a `patient_info` JSON object with each
+3. **Exposes a REST API** — callers send a `patientInfo` JSON object with each
    request; the engine builds an in-memory profile, runs matching, and returns
    ranked trial results. No patient state is stored.
 
@@ -77,10 +77,10 @@ passed inline per request; nothing is persisted.
 
 ### `resolve_patient_info` (`trials/services/patient_info/resolve.py`)
 
-Builds an unsaved `PatientInfo` instance from the `"patient_info": {...}` key
+Builds an unsaved `PatientInfo` instance from the `"patientInfo": {...}` key
 in the request body. Converts camelCase to snake_case, filters to known fields,
 attaches synthetic M2M attributes, and calls `normalize_patient_info`. Returns
-`None` if no patient_info payload is present.
+`None` if no `patientInfo` payload is present.
 
 ### `study_preferences_from_query_params` (`trials/services/study_preferences.py`)
 
@@ -116,7 +116,8 @@ The SQL-level filtering layer. Key methods:
 
 - `filtered_trials(search_options, study_info, patient_info)` — applies all
   active filters (disease, therapy, markers, distance, etc.) and annotates the
-  queryset with `match_score`. `study_info` is now a `StudyPreferences` dataclass.
+  queryset with `match_score`. `study_info` is a `StudyPreferences` dataclass
+  built from query params; `search_options` carries additional search-level flags.
 - `with_goodness_score_optimized()` — annotates with a weighted composite score
   (benefit, patient burden, risk, distance).
 - `with_distance_optimized(geo_point)` — annotates with distance to nearest
@@ -131,6 +132,14 @@ Presentation layer. Formats trial details for API responses:
 - Groups attributes into display buckets (`general`, `trialEligibilityAttributes`)
 - Attaches patient values alongside trial values for each attribute
 - Computes per-attribute matching types for display
+
+### Reference data seeders (`trials/services/loaders/`)
+
+Internal modules called by the `seed_reference_data` management command. Each
+`load_*.py` file populates one taxonomy table (therapies, markers, medications,
+etc.) using hardcoded data. Despite the `load_` prefix, these are **seeders**
+— there is no corresponding dump/export. The name predates the public `seed_*`
+command convention.
 
 ### `ValueOptions` (`trials/services/value_options.py`)
 
@@ -174,7 +183,7 @@ EXACT uses a **split-database** model:
 reads/writes to the external database and blocks migrations from running on it.
 
 When `TRIALS_DATABASE_URL` is not set, the router is inactive and everything
-falls back to `default` (single-database mode for local dev and tests).
+falls back to `default` (standalone mode — everything in one database).
 
 ### Key indexes (on the external trials database)
 

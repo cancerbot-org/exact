@@ -7,7 +7,11 @@ Interactive docs are available at runtime:
 - ReDoc: `/redoc/`
 
 All endpoints require an `Authorization: Token <token>` header unless noted
-otherwise.
+otherwise. To create a token for a user:
+
+```bash
+python manage.py drf_create_token <username>
+```
 
 JSON payloads and responses use **camelCase** keys (converted by
 `djangorestframework-camel-case`).
@@ -106,10 +110,14 @@ from the supplied values.
 Search/filter preferences are passed as **query parameters** on every
 trial-search request.
 
+> **Terminology note**: the per-trial match result is called `matchingType` in
+> JSON responses and `match status` in prose. The `type` query param filters by
+> this value (`eligible`, `potential`, `not_eligible`).
+
 | Param | Type | Description |
 |---|---|---|
 | `searchTitle` | string | Full-text search on trial title |
-| `recruitmentStatus` | string | Filter by recruitment status (e.g. `RECRUITING`) |
+| `recruitmentStatus` | string | Filter by recruitment status (e.g. `RECRUITING`). Note: the query param is `recruitmentStatus` but the field returned in `/trials/` list responses is `recruitingStatus`. |
 | `sponsor` | string | Filter by sponsor name |
 | `register` | string | Filter by trial register (e.g. `clinicaltrials.gov`) |
 | `trialType` | string | Filter by trial-type code |
@@ -129,7 +137,8 @@ trial-search request.
 
 ### `GET /trials/`
 
-List trials ordered by match score descending.
+List trials ordered by match score descending. For explicit sorting or the
+`favorites` filter, use [`GET /trials/search/`](#get-trialssearch) instead.
 
 **Patient context**: optional — include `"patientInfo": {...}` in the request body.
 
@@ -181,7 +190,9 @@ List trials ordered by match score descending.
 
 ### `GET /trials/search/`
 
-Extended search endpoint with sorting and filtering.
+Extended search endpoint — use this instead of `GET /trials/` when you need
+explicit sorting or access to the `favorites` filter type. Accepts the same
+patient context and study-preference query params as `GET /trials/`, plus:
 
 **Patient context**: optional — include `"patientInfo": {...}` in the request body.
 

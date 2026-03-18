@@ -28,7 +28,11 @@ The script runs all steps automatically:
 Override defaults if needed:
 
 ```bash
+# Run for specific patients only
 PERSON_IDS=1,2,3 bash scripts/trials4patients.sh
+
+# Run for the first 50 patients (ordered by person_id)
+PATIENT_LIMIT=50 bash scripts/trials4patients.sh
 ```
 
 ## Run manually
@@ -36,9 +40,17 @@ PERSON_IDS=1,2,3 bash scripts/trials4patients.sh
 ```bash
 cd /path/to/exact
 
+# Specific patients
 python manage.py search_trials_for_patients \
   --source-db-url "$PATIENT_DATABASE_URL" \
   --person-ids "9001,9002,9003" \
+  --limit 20 \
+  --output /tmp/results.json
+
+# Top N patients (ordered by person_id)
+python manage.py search_trials_for_patients \
+  --source-db-url "$PATIENT_DATABASE_URL" \
+  --patient-limit 50 \
   --limit 20 \
   --output /tmp/results.json
 ```
@@ -54,20 +66,39 @@ For fully self-contained local testing without external databases:
 python manage.py migrate
 python manage.py seed_reference_data
 python manage.py seed_test_trials
+python manage.py runserver
 ```
 
-This creates 8 test trials (2 per disease) in the local database:
+This creates 8 test trials (2 per disease) — see [setup.md](setup.md#5-seed-reference-data) for the full list.
 
-| Code | Disease | Scenario |
-|------|---------|----------|
-| `TEST-MM-001` | Multiple myeloma | R/R MM — ≥1 prior line required |
-| `TEST-MM-002` | Multiple myeloma | Newly diagnosed — no prior therapy |
-| `TEST-FL-001` | Follicular lymphoma | Treatment-naive |
-| `TEST-FL-002` | Follicular lymphoma | Relapsed — ≥2 prior lines |
-| `TEST-BC-001` | Breast cancer | TNBC |
-| `TEST-BC-002` | Breast cancer | HER2-negative advanced |
-| `TEST-CLL-001` | CLL | R/R — ≥1 prior line required |
-| `TEST-CLL-002` | CLL | Treatment-naive |
+Then run a match against the seeded trials using curl:
+
+```bash
+# Create a token first if you haven't already:
+python manage.py drf_create_token <username>
+
+# Search for trials matching a relapsed myeloma patient:
+curl -s http://localhost:8000/trials/ \
+  -H "Authorization: Token <your-token>" \
+  -H "Content-Type: application/json" \
+  -d '{"patientInfo": {"disease": "multiple myeloma", "patientAge": 65, "priorTherapy": "One line"}}' \
+  | python -m json.tool
+```
+
+Or use the Django shell for direct ORM access (no web server needed):
+
+```bash
+python manage.py shell <<'EOF'
+from trials.models import Trial
+from trials.services.patient_info.resolve import resolve_patient_info
+
+pi = resolve_patient_info({"disease": "multiple myeloma", "patientAge": 65, "priorTherapy": "One line"})
+from trials.querysets.trial import TrialQuerySet
+qs = Trial.objects.filter_for_patient(pi)
+for t in qs[:5]:
+    print(t.study_id, t.match_score)
+EOF
+```
 
 To wipe and re-seed:
 
@@ -79,7 +110,7 @@ python manage.py seed_test_trials --clear
 
 ```
   person_id=9001 [multiple myeloma]         → 2 trials | 1 eligible | 1 potential | best: 88%
-  person_id=9002 [multiple myeloma]         → 1 trials | 1 eligible | 0 potential | best: 92%
+  person_id=9002 [multiple myeloma]         → 1 trial  | 1 eligible | 0 potential | best: 92%
   ...
 
 Done. Patients processed: 7, Errors: 0
