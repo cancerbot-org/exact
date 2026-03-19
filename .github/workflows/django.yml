@@ -1,0 +1,96 @@
+name: backend
+
+on:
+  push:
+    branches: [ dev, main ]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - name: Cache pip
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}-v1
+        restore-keys: |
+          ${{ runner.os }}-pip-
+    - uses: actions/cache@v4
+      with:
+        path: ${{ env.pythonLocation }}
+        key: ${{ runner.os }}-${{ env.pythonLocation }}-${{ hashFiles('requirements.txt') }}-v1
+    - name: Install system dependencies
+      run: |
+        sudo apt-get -qq update && \
+        sudo apt-get -yqq install \
+          gcc \
+          libpq-dev \
+          gdal-bin \
+          libgdal-dev \
+          libgeos-dev \
+          postgresql-client
+    - name: Install Python dependencies
+      run: pip install -r requirements.txt
+
+  test:
+    runs-on: ubuntu-latest
+    needs: [build]
+    strategy:
+      matrix:
+        group: [1, 2, 3]
+    services:
+      postgres:
+        image: postgis/postgis:16-3.5
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: exact${{ matrix.group }}
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - uses: actions/cache@v4
+      with:
+        path: ${{ env.pythonLocation }}
+        key: ${{ runner.os }}-${{ env.pythonLocation }}-${{ hashFiles('requirements.txt') }}-v1
+    - name: Install system dependencies
+      run: |
+        sudo apt-get -qq update && \
+        sudo apt-get -yqq install \
+          gcc \
+          libpq-dev \
+          gdal-bin \
+          libgdal-dev \
+          libgeos-dev \
+          libgeos-c1v5 \
+          postgresql-client
+    - name: Set environment
+      run: |
+        echo "SECRET_KEY=ci-secret-key-not-used-in-prod" >> $GITHUB_ENV
+        echo "DEBUG=false" >> $GITHUB_ENV
+        echo "DATABASE_NAME=exact${{ matrix.group }}" >> $GITHUB_ENV
+        echo "DATABASE_USER=postgres" >> $GITHUB_ENV
+        echo "DATABASE_PASSWORD=postgres" >> $GITHUB_ENV
+        echo "DATABASE_HOST=localhost" >> $GITHUB_ENV
+        echo "DATABASE_PORT=5432" >> $GITHUB_ENV
+    - name: Check for missing migrations
+      run: python manage.py makemigrations --check
+    - name: Run migrations
+      run: python manage.py migrate
+    - name: Run tests
+      run: python -m pytest --splits 3 --group ${{ matrix.group }}

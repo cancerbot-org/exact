@@ -1,0 +1,42 @@
+# Core
+Django==5.2.7
+djangorestframework==3.16.1
+djangorestframework-camel-case==1.4.2
+drf-yasg==1.21.14
+django-cors-headers==4.9.0
+python-dotenv==1.2.1
+gunicorn==23.0.0
+whitenoise==6.11.0
+
+# Database
+psycopg2==2.9.11
+dj-database-url==3.1.0
+
+# GIS
+# Requires system GDAL/GEOS — install via: apt-get install gdal-bin libgdal-dev libgeos-dev
+
+# Geo / Location
+geopy==2.4.1
+pgeocode==0.5.0
+
+# Celery (optional — for async geolocation task)
+celery==5.6.2
+redis==6.4.0
+
+# Units / quantity conversion
+django-pint==1.0.4
+
+# API schema
+coreapi==2.3.3
+
+# Utilities
+django-countries==8.2.0
+glom==24.11.0
+inflection==0.5.1
+requests==2.32.5
+
+# Testing
+pytest==8.4.2
+pytest-django==4.11.1
+pytest-factoryboy==2.8.1
+pytest-split==0.10.0
