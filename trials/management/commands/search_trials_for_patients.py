@@ -63,7 +63,7 @@ SKIP_COLUMNS = frozenset({
     # PostGIS geography field — source uses lat/lon floats instead
     'geo_point',
     # API-only computed fields
-    'patient_name', 'age', 'refractory_status',
+    'patient_name', 'refractory_status',
 })
 
 # JSON fields that may arrive as strings and need decoding
@@ -72,6 +72,17 @@ JSON_FIELDS = frozenset({
     'genetic_mutations', 'stem_cell_transplant_history',
 })
 
+# Map external patient DB columns to EXACT PatientInfo fields
+EXTERNAL_FIELD_MAP = {
+    'age': 'patient_age',
+    'ecog': 'ecog_performance_status',
+    'ecog_score': 'ecog_performance_status',
+    'performance_status': 'ecog_performance_status',
+    'disease_stage': 'stage',
+    'sex': 'gender',
+    'karnofsky': 'karnofsky_performance_score',
+    'karnofsky_score': 'karnofsky_performance_score',
+}
 
 def _build_patient_info(row: dict):
     """Convert a patient_info row into an in-memory PatientInfo.
@@ -85,22 +96,24 @@ def _build_patient_info(row: dict):
     # Strip source-only columns; decode any JSON-as-string fields
     cleaned = {}
     for col, val in row.items():
-        if col in SKIP_COLUMNS:
+        mapped_col = EXTERNAL_FIELD_MAP.get(col, col)
+        
+        if mapped_col in SKIP_COLUMNS or col in SKIP_COLUMNS:
             continue
         if val is None:
             continue
-        if col in JSON_FIELDS and isinstance(val, str):
+        if mapped_col in JSON_FIELDS and isinstance(val, str):
             try:
                 val = json.loads(val)
             except (json.JSONDecodeError, TypeError):
                 val = [val] if val else []
-        if not val and col in JSON_FIELDS:
+        if not val and mapped_col in JSON_FIELDS:
             continue
         if isinstance(val, date):
             val = val.isoformat()
         if isinstance(val, Decimal):
             val = float(val)
-        cleaned[col] = val
+        cleaned[mapped_col] = val
 
     # _build_in_memory handles snake_case→PatientInfo + normalize_patient_info
     return _build_in_memory(cleaned)
