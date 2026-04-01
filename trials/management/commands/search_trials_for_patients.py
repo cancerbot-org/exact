@@ -30,14 +30,33 @@ import csv
 import json
 import logging
 import os
+import re
 import sys
 from datetime import date
 from decimal import Decimal
+from urllib.parse import urlparse
 
 from django.core.management.base import BaseCommand
 from trials.services.user_to_trial_attr_matcher import UserToTrialAttrMatcher
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_db_url(url):
+    """
+    Parse a postgres[ql]:// URL into individual psycopg2.connect() kwargs.
+    Passing keyword args avoids a double-free crash in psycopg2 on macOS/conda
+    caused by libpq's internal URL parser conflicting with the system allocator.
+    """
+    parsed = urlparse(url)
+    return {
+        'host': parsed.hostname,
+        'port': parsed.port or 5432,
+        'dbname': parsed.path.lstrip('/'),
+        'user': parsed.username,
+        'password': parsed.password,
+        'sslmode': 'require',
+    }
 
 # ------------------------------------------------------------------
 # Columns to skip when building the PatientInfo object.
@@ -64,6 +83,8 @@ SKIP_COLUMNS = frozenset({
     'geo_point',
     # API-only computed fields
     'patient_name', 'age', 'refractory_status',
+    # person-table fields added for normalization — not PatientInfo columns
+    'gender_source_value', 'gender_concept_id',
 })
 
 # JSON fields that may arrive as strings and need decoding
@@ -71,6 +92,139 @@ JSON_FIELDS = frozenset({
     'later_therapies', 'supportive_therapies',
     'genetic_mutations', 'stem_cell_transplant_history',
 })
+
+
+_HISTOLOGIC_MAP = {
+    'Ductal carcinoma in situ': 'dcis',
+    'Invasive ductal carcinoma': 'infiltrating_ductal_carcinoma',
+    'Invasive lobular carcinoma': 'infiltrating_lobular_carcinoma',
+    'Medullary carcinoma': 'medullary_carcinoma',
+    'Mucinous carcinoma': 'mucinous_colloid_carcinoma',
+}
+
+_REFRACTORY_MAP = {
+    'Responsive': 'notRefractory',
+    'Stable': 'notRefractory',
+    # CTOMOP doesn't distinguish primary/secondary/multi-refractory — best-guess mapping.
+    'Refractory': 'primaryRefractory',
+}
+
+
+def _normalize_ctomop_row(row: dict) -> dict:
+    """Normalize a raw CTOMOP patient_info row to EXACT's internal value format.
+
+    Called before _build_in_memory so all downstream filtering sees the right
+    code values. Transformations are idempotent — already-normalized values
+    pass through unchanged.
+    """
+    # ── Receptor statuses ──────────────────────────────────────────────
+    # HER2: Equivocal (IHC 2+) → her2_low; Unknown → None.
+    her2 = row.get('her2_status')
+    if her2 == 'Negative':
+        row['her2_status'] = 'her2_minus'
+    elif her2 == 'Positive':
+        row['her2_status'] = 'her2_plus'
+    elif her2 == 'Equivocal':
+        row['her2_status'] = 'her2_low'
+    elif her2 in ('Unknown', ''):
+        row['her2_status'] = None
+
+    # ER/PR: EXACT has 4 levels. Business rule: Positive → hi_exp, Borderline → low_exp.
+    er = row.get('estrogen_receptor_status')
+    if er == 'Negative':
+        row['estrogen_receptor_status'] = 'er_minus'
+    elif er == 'Positive':
+        row['estrogen_receptor_status'] = 'er_plus_with_hi_exp'
+    elif er == 'Borderline':
+        row['estrogen_receptor_status'] = 'er_plus_with_low_exp'
+    elif er in ('Unknown', ''):
+        row['estrogen_receptor_status'] = None
+
+    pr = row.get('progesterone_receptor_status')
+    if pr == 'Negative':
+        row['progesterone_receptor_status'] = 'pr_minus'
+    elif pr == 'Positive':
+        row['progesterone_receptor_status'] = 'pr_plus_with_hi_exp'
+    elif pr == 'Borderline':
+        row['progesterone_receptor_status'] = 'pr_plus_with_low_exp'
+    elif pr in ('Unknown', ''):
+        row['progesterone_receptor_status'] = None
+
+    # ── Histologic type ────────────────────────────────────────────────
+    if row.get('histologic_type') in _HISTOLOGIC_MAP:
+        row['histologic_type'] = _HISTOLOGIC_MAP[row['histologic_type']]
+
+    # ── Stage — strip trailing sub-stage letter (IIA → II, IIIB → III) ─
+    stage = row.get('stage')
+    if stage:
+        row['stage'] = re.sub(r'[A-C]$', '', stage)
+
+    # ── Treatment refractory status ────────────────────────────────────
+    if row.get('treatment_refractory_status') in _REFRACTORY_MAP:
+        row['treatment_refractory_status'] = _REFRACTORY_MAP[row['treatment_refractory_status']]
+
+    # ── Genetic mutations — normalize casing / format ──────────────────
+    mutations = row.get('genetic_mutations')
+    if isinstance(mutations, list):
+        normalized = []
+        for m in mutations:
+            if not isinstance(m, dict):
+                normalized.append(m)
+                continue
+            m = dict(m)
+            if m.get('gene'):
+                m['gene'] = m['gene'].lower()
+            if m.get('interpretation'):
+                m['interpretation'] = m['interpretation'].lower().replace(' ', '_')
+            if m.get('origin'):
+                m['origin'] = m['origin'].lower()
+            normalized.append(m)
+        row['genetic_mutations'] = normalized
+
+    # ── Lab value fallbacks (CTOMOP uses renamed columns) ─────────────
+    if not row.get('hemoglobin_level') and row.get('hemoglobin_g_dl') is not None:
+        row['hemoglobin_level'] = row['hemoglobin_g_dl']
+
+    if not row.get('absolute_neutrophile_count') and row.get('anc_thousand_per_ul') is not None:
+        row['absolute_neutrophile_count'] = row['anc_thousand_per_ul'] * 1000
+
+    if not row.get('absolute_lymphocyte_count') and row.get('alc_thousand_per_ul') is not None:
+        row['absolute_lymphocyte_count'] = row['alc_thousand_per_ul'] * 1000
+
+    if not row.get('lactate_dehydrogenase_level') and row.get('ldh_u_l') is not None:
+        row['lactate_dehydrogenase_level'] = row['ldh_u_l']
+
+    # ── Prior therapy — derive from therapy_lines_count ───────────────
+    # CTOMOP prior_therapy is binary Yes/No; therapy_lines_count has the detail.
+    lines = row.get('therapy_lines_count')
+    if lines is not None:
+        _lines_map = {0: 'None', 1: 'One line', 2: 'Two lines'}
+        row['prior_therapy'] = _lines_map.get(lines, 'More than two lines of therapy')
+
+    # ── Age from date_of_birth ─────────────────────────────────────────
+    if not row.get('patient_age') and row.get('date_of_birth'):
+        dob = row['date_of_birth']
+        if isinstance(dob, date):
+            row['patient_age'] = (date.today() - dob).days // 365
+
+    # ── Gender from person.gender_source_value (added by _fetch_via_db) ─
+    # gender_source_value is typically 'M' / 'F' in OMOP; fallback to concept IDs.
+    if not row.get('gender'):
+        gsv = row.get('gender_source_value', '')
+        if gsv in ('M', 'F'):
+            row['gender'] = gsv
+        elif gsv and gsv.lower().startswith('m'):
+            row['gender'] = 'M'
+        elif gsv and gsv.lower().startswith('f'):
+            row['gender'] = 'F'
+        else:
+            gci = row.get('gender_concept_id')
+            if gci == 8507:
+                row['gender'] = 'M'
+            elif gci == 8532:
+                row['gender'] = 'F'
+
+    return row
 
 
 def _build_patient_info(row: dict):
@@ -81,6 +235,8 @@ def _build_patient_info(row: dict):
     are computed identically to what the API would produce.
     """
     from trials.services.patient_info.resolve import _build_in_memory
+
+    row = _normalize_ctomop_row(row)
 
     # Strip source-only columns; decode any JSON-as-string fields
     cleaned = {}
@@ -388,7 +544,7 @@ class Command(BaseCommand):
             return None
 
         try:
-            conn = psycopg2.connect(source_db_url)
+            conn = psycopg2.connect(**_parse_db_url(source_db_url))
         except Exception as e:
             self.stderr.write(self.style.ERROR(f'DB connection failed: {e}'))
             return None
@@ -397,7 +553,9 @@ class Command(BaseCommand):
         try:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
                 query = '''
-                    SELECT pi.*
+                    SELECT pi.*,
+                           p.gender_source_value,
+                           p.gender_concept_id
                     FROM patient_info pi
                     JOIN person p ON pi.person_id = p.person_id
                 '''

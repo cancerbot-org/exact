@@ -1,4 +1,5 @@
 import itertools
+import re
 from typing import TYPE_CHECKING
 
 from django.contrib.gis.db.models.functions import Distance
@@ -690,7 +691,14 @@ class TrialQuerySet(models.QuerySet):
     def eligible_for_stage(self, stage):
         if stage is None or stage == '':
             return self
-        return self.filter(Q(stages__contains=stage) | Q(stages=[]))
+        # Also match parent stage in case patient has a sub-stage (e.g. IIIB → III).
+        # Normalization in _normalize_ctomop_row strips sub-stages at load time, but
+        # this makes the filter robust for any remaining sub-stage values.
+        parent_stage = re.sub(r'[A-C]$', '', stage)
+        q = Q(stages__contains=stage) | Q(stages=[])
+        if parent_stage != stage:
+            q |= Q(stages__contains=parent_stage)
+        return self.filter(q)
 
     def eligible_for_tumor_grade(self, tumor_grade):
         attr_min_name = 'tumor_grade_min'

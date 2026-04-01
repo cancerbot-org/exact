@@ -18,6 +18,9 @@
 
 set -e
 
+# Fix for psycopg2 double-free crash on macOS with conda (libpq allocator conflict)
+export MALLOC_NANO_ZONE=0
+
 # Load environment variables from .env if present
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
