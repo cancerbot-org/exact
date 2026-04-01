@@ -154,6 +154,17 @@ def _normalize_ctomop_row(row: dict) -> dict:
     if row.get('histologic_type') in _HISTOLOGIC_MAP:
         row['histologic_type'] = _HISTOLOGIC_MAP[row['histologic_type']]
 
+    # ── Tumor grade: CTOMOP IntegerField (1,2,3,4) → EXACT code ('10','20','30','40') ─
+    # Sub-grades 3A/3B (codes '31','32') cannot be derived from CTOMOP — map 3 → '30'.
+    tg = row.get('tumor_grade')
+    if isinstance(tg, int):
+        row['tumor_grade'] = {1: '10', 2: '20', 3: '30', 4: '40'}.get(tg, str(tg))
+
+    # ── Biopsy grade: CTOMOP IntegerField (1,2,3) → EXACT code ('1','2','3') ──────────
+    bg = row.get('biopsy_grade')
+    if isinstance(bg, int):
+        row['biopsy_grade'] = str(bg)
+
     # ── Stage — strip trailing sub-stage letter (IIA → II, IIIB → III) ─
     stage = row.get('stage')
     if stage:
