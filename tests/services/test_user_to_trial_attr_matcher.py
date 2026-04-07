@@ -100,3 +100,48 @@ class TestUserToTrialAttrMatcher:
             'therapyComponentsRequired': {'status': 'matched', 'values': ['Bortezomib', 'Dexamethasone', 'Lenalidomide']},
             'therapyComponentsExcluded': {'status': 'matched', 'values': ['Bortezomib', 'Dexamethasone', 'Lenalidomide']}
         }
+
+    @pytest.mark.django_db
+    def test_receptor_status_hierarchy(self):
+        """
+        er_plus_with_hi_exp / er_plus_with_low_exp are subtypes of er_plus.
+        The matcher must return 'eligible' for a BC trial requiring er_plus when
+        the patient has one of those subtypes, and 'not_eligible' for er_minus.
+        Same logic applies to PR (pr_plus) and HR (hr_plus).
+        """
+        # --- ER ---
+        trial_er = TrialFactory(disease='breast cancer', estrogen_receptor_statuses_required=['er_plus'])
+
+        assert UserToTrialAttrMatcher(trial_er, PatientInfo(
+            disease='breast cancer', estrogen_receptor_status='er_plus_with_hi_exp'
+        )).trial_match_status() == 'eligible'
+
+        assert UserToTrialAttrMatcher(trial_er, PatientInfo(
+            disease='breast cancer', estrogen_receptor_status='er_plus_with_low_exp'
+        )).trial_match_status() == 'eligible'
+
+        assert UserToTrialAttrMatcher(trial_er, PatientInfo(
+            disease='breast cancer', estrogen_receptor_status='er_minus'
+        )).trial_match_status() == 'not_eligible'
+
+        # --- PR ---
+        trial_pr = TrialFactory(disease='breast cancer', progesterone_receptor_statuses_required=['pr_plus'])
+
+        assert UserToTrialAttrMatcher(trial_pr, PatientInfo(
+            disease='breast cancer', progesterone_receptor_status='pr_plus_with_hi_exp'
+        )).trial_match_status() == 'eligible'
+
+        assert UserToTrialAttrMatcher(trial_pr, PatientInfo(
+            disease='breast cancer', progesterone_receptor_status='pr_minus'
+        )).trial_match_status() == 'not_eligible'
+
+        # --- HR ---
+        trial_hr = TrialFactory(disease='breast cancer', hr_statuses_required=['hr_plus'])
+
+        assert UserToTrialAttrMatcher(trial_hr, PatientInfo(
+            disease='breast cancer', hr_status='hr_plus_with_hi_exp'
+        )).trial_match_status() == 'eligible'
+
+        assert UserToTrialAttrMatcher(trial_hr, PatientInfo(
+            disease='breast cancer', hr_status='hr_minus'
+        )).trial_match_status() == 'not_eligible'

@@ -101,9 +101,11 @@ for r in results:
     total = r['total_trials']
     eligible = r['eligible_count']
     potential = r['potential_count']
-    score = r.get('best_match_score')
-    score_str = f\"{score}%\" if score else 'n/a'
-    print(f'  person_id={pid} [{disease}] → {total} trials | {eligible} eligible | {potential} potential | best: {score_str}')
+    match_score = r.get('best_match_score')
+    goodness_score = r.get('best_goodness_score')
+    match_str = f\"{match_score}%\" if match_score is not None else 'n/a'
+    goodness_str = f\"{goodness_score:.1f}\" if goodness_score is not None else 'n/a'
+    print(f'  person_id={pid} [{disease}] → {total} trials | {eligible} eligible | {potential} potential | best match: {match_str} | best goodness: {goodness_str}')
 " 2>/dev/null
 
 echo ""

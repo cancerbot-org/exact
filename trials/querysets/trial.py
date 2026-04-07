@@ -989,15 +989,33 @@ class TrialQuerySet(models.QuerySet):
             required_attr_name='languages_skills_required'
         )
 
+    # ── Receptor status parent-code expansion ─────────────────────────────────
+    # Trials may store a generic parent code (e.g. "er_plus") while the patient
+    # carries a specific child code (e.g. "er_plus_with_hi_exp") after CTOMOP
+    # normalization.  Including the parent in the filter ensures trials that
+    # accepted the generic code still match.
+    _ER_PARENTS = {'er_plus_with_hi_exp': 'er_plus', 'er_plus_with_low_exp': 'er_plus'}
+    _PR_PARENTS = {'pr_plus_with_hi_exp': 'pr_plus', 'pr_plus_with_low_exp': 'pr_plus'}
+    _HR_PARENTS = {'hr_plus_with_hi_exp': 'hr_plus', 'hr_plus_with_low_exp': 'hr_plus'}
+
+    @staticmethod
+    def _expand_receptor_codes(values: list[str], parent_map: dict) -> list[str]:
+        expanded = list(values)
+        for v in values:
+            parent = parent_map.get(v)
+            if parent and parent not in expanded:
+                expanded.append(parent)
+        return expanded
+
     def eligible_for_estrogen_receptor_statuses(self, estrogen_receptor_statuses: list[str]) -> models.QuerySet:
         return self.eligible_for_required_lists(
-            values=estrogen_receptor_statuses,
+            values=self._expand_receptor_codes(estrogen_receptor_statuses, self._ER_PARENTS),
             required_attr_name='estrogen_receptor_statuses_required'
         )
 
     def eligible_for_progesterone_receptor_statuses(self, progesterone_receptor_statuses: list[str]) -> models.QuerySet:
         return self.eligible_for_required_lists(
-            values=progesterone_receptor_statuses,
+            values=self._expand_receptor_codes(progesterone_receptor_statuses, self._PR_PARENTS),
             required_attr_name='progesterone_receptor_statuses_required'
         )
 
@@ -1015,7 +1033,7 @@ class TrialQuerySet(models.QuerySet):
 
     def eligible_for_hr_statuses(self, hr_statuses: list[str]) -> models.QuerySet:
         return self.eligible_for_required_lists(
-            values=hr_statuses,
+            values=self._expand_receptor_codes(hr_statuses, self._HR_PARENTS),
             required_attr_name='hr_statuses_required'
         )
 
@@ -1140,7 +1158,7 @@ class TrialQuerySet(models.QuerySet):
 
         for user_attr in mapping.keys():
             user_attr_value = patient_info_attr.get_value(user_attr)
-            if user_attr_value is None or str(user_attr_value) == '':
+            if patient_info_attr.is_attr_blank(user_attr):
                 continue
 
             trial_attr_meta = mapping[user_attr]

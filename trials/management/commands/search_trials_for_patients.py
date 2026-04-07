@@ -79,6 +79,10 @@ SKIP_COLUMNS = frozenset({
     'liver_enzyme_levels', 'serum_bilirubin_level',
     # Legacy viral flags (EXACT uses no_hiv_status / no_hepatitis_*_status)
     'hiv_status', 'hepatitis_b_status', 'hepatitis_c_status',
+    # CTOMOP-only fields with no direct PatientInfo equivalent
+    # (metastatic_status is derived by normalize.py from stage; lymph_node and
+    #  androgen_receptor have no EXACT matching criteria)
+    'metastasis_status', 'lymph_node_status', 'androgen_receptor_status',
     # PostGIS geography field — source uses lat/lon floats instead
     'geo_point',
     # API-only computed fields
@@ -94,12 +98,21 @@ JSON_FIELDS = frozenset({
 })
 
 
+# Keys are CTOMOP labels (matching DB titles from load_bc_options.py).
 _HISTOLOGIC_MAP = {
-    'Ductal carcinoma in situ': 'dcis',
-    'Invasive ductal carcinoma': 'infiltrating_ductal_carcinoma',
-    'Invasive lobular carcinoma': 'infiltrating_lobular_carcinoma',
+    'Infiltrating ductal carcinoma (IDC)': 'infiltrating_ductal_carcinoma',
+    'Ductal carcinoma in situ (DCIS)': 'dcis',
+    'Infiltrating lobular carcinoma (ILC)': 'infiltrating_lobular_carcinoma',
+    'Lobular carcinoma in situ (LCIS)': 'lcis',
+    'Mixed ductal and lobular carcinoma': 'mixed_ductal_and_lobular_carcinoma',
+    'Mucinous (colloid) carcinoma': 'mucinous_colloid_carcinoma',
+    'Tubular carcinoma': 'tubular_carcinoma',
     'Medullary carcinoma': 'medullary_carcinoma',
-    'Mucinous carcinoma': 'mucinous_colloid_carcinoma',
+    'Papillary carcinoma': 'papillary_carcinoma',
+    'Metaplastic carcinoma': 'metaplastic_carcinoma',
+    'Paget disease of the nipple': 'paget_disease_of_the_nipple',
+    'Inflammatory carcinoma': 'inflammatory_carcinoma',
+    'Unknown': None,
 }
 
 _REFRACTORY_MAP = {
@@ -107,6 +120,33 @@ _REFRACTORY_MAP = {
     'Stable': 'notRefractory',
     # CTOMOP doesn't distinguish primary/secondary/multi-refractory — best-guess mapping.
     'Refractory': 'primaryRefractory',
+    'Unknown': None,
+}
+
+# CTOMOP ethnicity labels → EXACT codes (from load_ethnicity_options.py).
+# Hispanic/Latino has no direct EXACT equivalent; map to 'other'.
+_ETHNICITY_MAP = {
+    'Asian': 'asian',
+    'Black/African-American': 'african_or_black',
+    'Caucasian/White': 'caucasian_or_european',
+    'Hispanic/Latino': 'other',
+    'Native American': 'native_american',
+}
+
+# CTOMOP stores full-text labels; EXACT's _normalize_treatment_refractory_status
+# compares against abbreviated IDs ('PD', 'SD', 'MRD', …).
+_OUTCOME_MAP = {
+    'Complete Response': 'CR',
+    'Complete Response (CR)': 'CR',
+    'Stringent Complete Response (sCR)': 'sCR',
+    'Very Good Partial Response (VGPR)': 'VGPR',
+    'Partial Response': 'PR',
+    'Partial Response (PR)': 'PR',
+    'Minimal Residual Disease (MRD) Negativity': 'MRD',
+    'Stable Disease (SD)': 'SD',
+    'Progressive Disease': 'PD',
+    'Progressive Disease (PD)': 'PD',
+    'Unknown': None,
 }
 
 
@@ -150,9 +190,26 @@ def _normalize_ctomop_row(row: dict) -> dict:
     elif pr in ('Unknown', ''):
         row['progesterone_receptor_status'] = None
 
+    # ── TNM staging — CTOMOP stores full concept names, EXACT expects short codes ──
+    # e.g. 'T1: Invasive Tumor ≤ 2 cm' → 't1', 'M0(i+): ...' → 'm0(i_plus)'
+    for _tnm in ('tumor_stage', 'nodes_stage', 'distant_metastasis_stage'):
+        val = row.get(_tnm)
+        if isinstance(val, str) and ':' in val:
+            code = val.split(':')[0].strip().lower().replace('(i+)', '(i_plus)')
+            row[_tnm] = code
+
     # ── Histologic type ────────────────────────────────────────────────
     if row.get('histologic_type') in _HISTOLOGIC_MAP:
         row['histologic_type'] = _HISTOLOGIC_MAP[row['histologic_type']]
+
+    # ── Ethnicity — CTOMOP labels → EXACT codes ────────────────────────
+    if row.get('ethnicity') in _ETHNICITY_MAP:
+        row['ethnicity'] = _ETHNICITY_MAP[row['ethnicity']]
+
+    # ── Staging modality — CTOMOP stores title ('c → Clinical'), EXACT expects code ('c') ─
+    sm = row.get('staging_modalities')
+    if isinstance(sm, str) and ' → ' in sm:
+        row['staging_modalities'] = sm.split(' → ')[0].strip()
 
     # ── Tumor grade: CTOMOP IntegerField (1,2,3,4) → EXACT code ('10','20','30','40') ─
     # Sub-grades 3A/3B (codes '31','32') cannot be derived from CTOMOP — map 3 → '30'.
@@ -170,11 +227,22 @@ def _normalize_ctomop_row(row: dict) -> dict:
     if stage:
         row['stage'] = re.sub(r'[A-C]$', '', stage)
 
+    # ── Therapy line outcomes — map full-text labels to abbreviated IDs ──────────
+    # Required so _normalize_treatment_refractory_status (which checks 'PD'/'SD'/'MRD')
+    # can correctly recompute treatment_refractory_status from outcome fields.
+    for _of in ('first_line_outcome', 'second_line_outcome', 'later_outcome'):
+        val = row.get(_of)
+        if val in _OUTCOME_MAP:
+            row[_of] = _OUTCOME_MAP[val]
+
     # ── Treatment refractory status ────────────────────────────────────
     if row.get('treatment_refractory_status') in _REFRACTORY_MAP:
         row['treatment_refractory_status'] = _REFRACTORY_MAP[row['treatment_refractory_status']]
 
     # ── Genetic mutations — normalize casing / format ──────────────────
+    # CTOMOP uses key 'mutation' for the variant; EXACT expects 'variant'.
+    # Variant value also needs code-format normalization (GeneticMutations loader uses
+    # value_to_code: str.replace('>','_').replace(' ','_').lower()).
     mutations = row.get('genetic_mutations')
     if isinstance(mutations, list):
         normalized = []
@@ -188,7 +256,15 @@ def _normalize_ctomop_row(row: dict) -> dict:
             if m.get('interpretation'):
                 m['interpretation'] = m['interpretation'].lower().replace(' ', '_')
             if m.get('origin'):
-                m['origin'] = m['origin'].lower()
+                raw_origin = m['origin'].lower()
+                m['origin'] = raw_origin if raw_origin in ('somatic', 'germline') else None
+            # Rename 'mutation' → 'variant' and normalize to EXACT code format
+            if 'mutation' in m and 'variant' not in m:
+                raw = m.pop('mutation')
+                if isinstance(raw, str):
+                    m['variant'] = raw.replace('>', '_').replace(' ', '_').lower()
+            elif m.get('variant') and isinstance(m['variant'], str):
+                m['variant'] = m['variant'].replace('>', '_').replace(' ', '_').lower()
             normalized.append(m)
         row['genetic_mutations'] = normalized
 
@@ -204,6 +280,23 @@ def _normalize_ctomop_row(row: dict) -> dict:
 
     if not row.get('lactate_dehydrogenase_level') and row.get('ldh_u_l') is not None:
         row['lactate_dehydrogenase_level'] = row['ldh_u_l']
+
+    # ── Therapy JSON fields — CTOMOP stores free-text, not structured dicts ──────
+    # EXACT expects [{therapy: code, ...}] objects. CTOMOP's text values cannot be
+    # mapped to therapy codes, so clear them to avoid AttributeError in get_user_therapies().
+    for _tf in ('supportive_therapies', 'later_therapies'):
+        val = row.get(_tf)
+        if isinstance(val, str) and not val.strip().startswith('['):
+            row[_tf] = None
+
+    # ── Metastatic status — CTOMOP column name differs from EXACT's ─────
+    # CTOMOP: metastasis_status (text) → EXACT: metastatic_status (bool)
+    ms = row.get('metastasis_status')
+    if ms == 'Positive':
+        row['metastatic_status'] = True
+    elif ms == 'Negative':
+        row['metastatic_status'] = False
+    # 'Unknown' → leave unset (PatientInfo default is False, so we don't set it)
 
     # ── Prior therapy — derive from therapy_lines_count ───────────────
     # CTOMOP prior_therapy is binary Yes/No; therapy_lines_count has the detail.
@@ -655,6 +748,7 @@ class Command(BaseCommand):
         eligible = []
         potential = []
         scores = []
+        goodness_scores = []
         trials_out = []
 
         for trial in trials_page:
@@ -666,6 +760,8 @@ class Command(BaseCommand):
             goodness_score = getattr(trial, 'goodness_score', None)
             if match_score is not None:
                 scores.append(match_score)
+            if goodness_score is not None:
+                goodness_scores.append(float(goodness_score))
             trial_data = {
                 'studyId': trial.study_id,
                 'briefTitle': trial.brief_title,
@@ -695,6 +791,7 @@ class Command(BaseCommand):
             'eligible_count': len(eligible),
             'potential_count': len(potential),
             'best_match_score': max(scores) if scores else None,
+            'best_goodness_score': max(goodness_scores) if goodness_scores else None,
             'eligible_trials': eligible,
             'potential_trials': potential,
             'trials': trials_out,
@@ -706,13 +803,15 @@ class Command(BaseCommand):
         total = result['total_trials']
         eligible = result['eligible_count']
         potential = result['potential_count']
-        score = result['best_match_score']
-        score_str = f'{score}%' if score is not None else 'n/a'
+        match_score = result['best_match_score']
+        goodness_score = result.get('best_goodness_score')
+        match_str = f'{match_score}%' if match_score is not None else 'n/a'
+        goodness_str = f'{goodness_score:.1f}' if goodness_score is not None else 'n/a'
 
         self.stdout.write(
             f'  person_id={pid} [{disease}] '
             f'→ {total} total | {eligible} eligible | {potential} potential '
-            f'| best score: {score_str}'
+            f'| best match: {match_str} | best goodness: {goodness_str}'
         )
 
     def _write_output(self, results, path, fmt):
@@ -726,7 +825,7 @@ class Command(BaseCommand):
             fieldnames = [
                 'person_id', 'disease',
                 'total_trials', 'eligible_count', 'potential_count',
-                'best_match_score', 'top_trial_ids',
+                'best_match_score', 'best_goodness_score', 'top_trial_ids',
             ]
             with open(path, 'w', newline='') as f:
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -742,5 +841,6 @@ class Command(BaseCommand):
                         'eligible_count': r['eligible_count'],
                         'potential_count': r['potential_count'],
                         'best_match_score': r['best_match_score'],
+                        'best_goodness_score': r.get('best_goodness_score'),
                         'top_trial_ids': top_ids,
                     })
