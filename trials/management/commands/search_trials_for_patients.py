@@ -34,10 +34,171 @@ import re
 import sys
 from datetime import date
 from decimal import Decimal
+from functools import lru_cache
 from urllib.parse import urlparse
 
 from django.core.management.base import BaseCommand
 from trials.services.user_to_trial_attr_matcher import UserToTrialAttrMatcher
+
+
+@lru_cache(maxsize=1)
+def _build_code_lookup():
+    """
+    Load title→code mappings for every reference model from the trials DB.
+
+    Returns a dict keyed by model class name, each value being a
+    {title_lower: code} dict for that model.  lru_cache keeps it in memory
+    for the process lifetime (one DB load per management-command run).
+
+    Therapy takes priority over TherapyComponent when titles collide so that
+    the full eligibility chain (Therapy → components → categories) fires
+    correctly from a single therapy code.
+
+    CTOMOP-specific aliases are injected for models whose canonical titles
+    differ from the display strings that CTOMOP stores in patient_info.
+    """
+    from trials.models import (
+        Therapy, TherapyComponent,
+        Her2Status, HrStatus, HrdStatus,
+        HistologicType, EstrogenReceptorStatus, ProgesteroneReceptorStatus,
+        Ethnicity, PlannedTherapy, ConcomitantMedication, Marker,
+        MutationGene, MutationCode, MutationOrigin, MutationInterpretation,
+        TumorStage, NodesStage, DistantMetastasisStage, StagingModality,
+        BinetStage, ProteinExpression, RichterTransformation, TumorBurden,
+        PreExistingConditionCategory, StemCellTransplant,
+    )
+
+    all_models = [
+        Therapy, TherapyComponent,
+        Her2Status, HrStatus, HrdStatus,
+        HistologicType, EstrogenReceptorStatus, ProgesteroneReceptorStatus,
+        Ethnicity, PlannedTherapy, ConcomitantMedication, Marker,
+        MutationGene, MutationCode, MutationOrigin, MutationInterpretation,
+        TumorStage, NodesStage, DistantMetastasisStage, StagingModality,
+        BinetStage, ProteinExpression, RichterTransformation, TumorBurden,
+        PreExistingConditionCategory, StemCellTransplant,
+    ]
+
+    lookup = {}
+    for model in all_models:
+        lookup[model.__name__] = {
+            row['title'].lower().strip(): row['code']
+            for row in model.objects.using('trials').values('title', 'code')
+        }
+
+    # Therapy overrides TherapyComponent when both share the same title so
+    # that the component→category chain resolves via a single Therapy code.
+    therapy_map = {**lookup['TherapyComponent'], **lookup['Therapy']}
+    lookup['_therapy'] = therapy_map
+
+    # ── CTOMOP-specific aliases ──────────────────────────────────────────
+    # CTOMOP stores display strings that differ from EXACT's canonical titles.
+    # Add aliases so the resolver can map them without touching the DB data.
+
+    # Her2Status: CTOMOP sends "Negative" / "Positive" / "Equivocal";
+    # titles in DB are "HER2-" / "HER2+" / "HER2 low".
+    lookup['Her2Status'].update({
+        'negative':  'her2_minus',
+        'positive':  'her2_plus',
+        'equivocal': 'her2_low',   # IHC 2+ / equivocal → low expression
+    })
+
+    # EstrogenReceptorStatus: CTOMOP sends "Positive" / "Negative" / "Borderline".
+    # Business rule: Positive → hi_exp subtype, Borderline → low_exp subtype.
+    lookup['EstrogenReceptorStatus'].update({
+        'positive':   'er_plus_with_hi_exp',
+        'negative':   'er_minus',
+        'borderline': 'er_plus_with_low_exp',
+    })
+
+    # ProgesteroneReceptorStatus: same convention as ER.
+    lookup['ProgesteroneReceptorStatus'].update({
+        'positive':   'pr_plus_with_hi_exp',
+        'negative':   'pr_minus',
+        'borderline': 'pr_plus_with_low_exp',
+    })
+
+    # HrStatus / HrdStatus: simple positive / negative labels.
+    lookup['HrStatus'].update({'positive': 'hr_plus', 'negative': 'hr_minus'})
+    lookup['HrdStatus'].update({'positive': 'hrd_positive', 'negative': 'hrd_negative'})
+
+    # Ethnicity: CTOMOP sends US-style census labels; Hispanic/Latino has no
+    # direct EXACT equivalent — map to 'other'.
+    lookup['Ethnicity'].update({
+        'caucasian/white':           'caucasian_or_european',
+        'white':                     'caucasian_or_european',
+        'black/african-american':    'african_or_black',
+        'black or african american': 'african_or_black',
+        'hispanic or latino':        'other',
+        'hispanic/latino':           'other',
+    })
+
+    return lookup
+
+
+def _resolve_code(display: str, model_name: str) -> str | None:
+    """
+    Resolve a CTOMOP display string to an EXACT code for the given model.
+
+    Tries an exact (case-insensitive) title match first, then strips trailing
+    parenthetical groups one-by-one (CTOMOP format: "Title (brand) (generic)").
+    Returns None if no match is found — the field is then treated as unknown
+    (potential) by the matcher rather than silently skipping eligibility checks.
+    """
+    if not display or not display.strip():
+        return None
+    lookup = _build_code_lookup()
+    model_map = lookup.get(model_name, {})
+    s = display.strip()
+    while s:
+        code = model_map.get(s.lower())
+        if code:
+            return code
+        s2 = re.sub(r'\s*\([^)]*\)\s*$', '', s).strip()
+        if not s2 or s2 == s:
+            break
+        s = s2
+    return None
+
+
+def _resolve_therapy_code(display: str) -> str | None:
+    """
+    Map a CTOMOP therapy display string to an EXACT Therapy (or TherapyComponent) code.
+
+    Uses the combined Therapy+TherapyComponent title map so that both regimen-level
+    and component-level CTOMOP values resolve correctly.  Therapy codes take
+    priority over component codes when titles collide.
+    """
+    if not display or not display.strip():
+        return None
+    therapy_map = _build_code_lookup()['_therapy']
+    s = display.strip()
+    while s:
+        code = therapy_map.get(s.lower())
+        if code:
+            return code
+        s2 = re.sub(r'\s*\([^)]*\)\s*$', '', s).strip()
+        if not s2 or s2 == s:
+            break
+        s = s2
+    return None
+
+
+def _resolve_code_csv(display: str, model_name: str) -> str | None:
+    """
+    Resolve a comma-separated CTOMOP display string to a comma-joined list of codes.
+
+    Used for multi-value patient fields (cytogenic_markers, molecular_markers,
+    planned_therapies, concomitant_medications).  Items that cannot be resolved
+    are silently dropped; returns None if nothing resolved.
+    """
+    if not display or not display.strip():
+        return None
+    codes = [
+        c for item in display.split(',')
+        if (c := _resolve_code(item.strip(), model_name))
+    ]
+    return ','.join(codes) if codes else None
 
 logger = logging.getLogger(__name__)
 
@@ -98,39 +259,12 @@ JSON_FIELDS = frozenset({
 })
 
 
-# Keys are CTOMOP labels (matching DB titles from load_bc_options.py).
-_HISTOLOGIC_MAP = {
-    'Infiltrating ductal carcinoma (IDC)': 'infiltrating_ductal_carcinoma',
-    'Ductal carcinoma in situ (DCIS)': 'dcis',
-    'Infiltrating lobular carcinoma (ILC)': 'infiltrating_lobular_carcinoma',
-    'Lobular carcinoma in situ (LCIS)': 'lcis',
-    'Mixed ductal and lobular carcinoma': 'mixed_ductal_and_lobular_carcinoma',
-    'Mucinous (colloid) carcinoma': 'mucinous_colloid_carcinoma',
-    'Tubular carcinoma': 'tubular_carcinoma',
-    'Medullary carcinoma': 'medullary_carcinoma',
-    'Papillary carcinoma': 'papillary_carcinoma',
-    'Metaplastic carcinoma': 'metaplastic_carcinoma',
-    'Paget disease of the nipple': 'paget_disease_of_the_nipple',
-    'Inflammatory carcinoma': 'inflammatory_carcinoma',
-    'Unknown': None,
-}
-
 _REFRACTORY_MAP = {
     'Responsive': 'notRefractory',
     'Stable': 'notRefractory',
     # CTOMOP doesn't distinguish primary/secondary/multi-refractory — best-guess mapping.
     'Refractory': 'primaryRefractory',
     'Unknown': None,
-}
-
-# CTOMOP ethnicity labels → EXACT codes (from load_ethnicity_options.py).
-# Hispanic/Latino has no direct EXACT equivalent; map to 'other'.
-_ETHNICITY_MAP = {
-    'Asian': 'asian',
-    'Black/African-American': 'african_or_black',
-    'Caucasian/White': 'caucasian_or_european',
-    'Hispanic/Latino': 'other',
-    'Native American': 'native_american',
 }
 
 # CTOMOP stores full-text labels; EXACT's _normalize_treatment_refractory_status
@@ -158,37 +292,19 @@ def _normalize_ctomop_row(row: dict) -> dict:
     pass through unchanged.
     """
     # ── Receptor statuses ──────────────────────────────────────────────
-    # HER2: Equivocal (IHC 2+) → her2_low; Unknown → None.
-    her2 = row.get('her2_status')
-    if her2 == 'Negative':
-        row['her2_status'] = 'her2_minus'
-    elif her2 == 'Positive':
-        row['her2_status'] = 'her2_plus'
-    elif her2 == 'Equivocal':
-        row['her2_status'] = 'her2_low'
-    elif her2 in ('Unknown', ''):
-        row['her2_status'] = None
-
-    # ER/PR: EXACT has 4 levels. Business rule: Positive → hi_exp, Borderline → low_exp.
-    er = row.get('estrogen_receptor_status')
-    if er == 'Negative':
-        row['estrogen_receptor_status'] = 'er_minus'
-    elif er == 'Positive':
-        row['estrogen_receptor_status'] = 'er_plus_with_hi_exp'
-    elif er == 'Borderline':
-        row['estrogen_receptor_status'] = 'er_plus_with_low_exp'
-    elif er in ('Unknown', ''):
-        row['estrogen_receptor_status'] = None
-
-    pr = row.get('progesterone_receptor_status')
-    if pr == 'Negative':
-        row['progesterone_receptor_status'] = 'pr_minus'
-    elif pr == 'Positive':
-        row['progesterone_receptor_status'] = 'pr_plus_with_hi_exp'
-    elif pr == 'Borderline':
-        row['progesterone_receptor_status'] = 'pr_plus_with_low_exp'
-    elif pr in ('Unknown', ''):
-        row['progesterone_receptor_status'] = None
+    # Resolved via DB-backed LRU map; aliases handle CTOMOP-specific labels
+    # (e.g. "Equivocal" → her2_low, "Borderline" → er_plus_with_low_exp).
+    # Unknown / empty strings resolve to None → treated as unknown by matcher.
+    for _field, _model in [
+        ('her2_status',                  'Her2Status'),
+        ('estrogen_receptor_status',     'EstrogenReceptorStatus'),
+        ('progesterone_receptor_status', 'ProgesteroneReceptorStatus'),
+        ('hr_status',                    'HrStatus'),
+        ('hrd_status',                   'HrdStatus'),
+    ]:
+        val = row.get(_field)
+        if isinstance(val, str):
+            row[_field] = _resolve_code(val, _model)
 
     # ── TNM staging — CTOMOP stores full concept names, EXACT expects short codes ──
     # e.g. 'T1: Invasive Tumor ≤ 2 cm' → 't1', 'M0(i+): ...' → 'm0(i_plus)'
@@ -199,12 +315,27 @@ def _normalize_ctomop_row(row: dict) -> dict:
             row[_tnm] = code
 
     # ── Histologic type ────────────────────────────────────────────────
-    if row.get('histologic_type') in _HISTOLOGIC_MAP:
-        row['histologic_type'] = _HISTOLOGIC_MAP[row['histologic_type']]
+    val = row.get('histologic_type')
+    if isinstance(val, str):
+        row['histologic_type'] = _resolve_code(val, 'HistologicType')
 
     # ── Ethnicity — CTOMOP labels → EXACT codes ────────────────────────
-    if row.get('ethnicity') in _ETHNICITY_MAP:
-        row['ethnicity'] = _ETHNICITY_MAP[row['ethnicity']]
+    val = row.get('ethnicity')
+    if isinstance(val, str):
+        row['ethnicity'] = _resolve_code(val, 'Ethnicity')
+
+    # ── Multi-value code fields — resolve CSV display names to codes ───
+    # These fields store comma-separated display names in CTOMOP but EXACT
+    # expects comma-separated normalized codes for has_any_keys filtering.
+    for _field, _model in [
+        ('cytogenic_markers',     'Marker'),
+        ('molecular_markers',     'Marker'),
+        ('planned_therapies',     'PlannedTherapy'),
+        ('concomitant_medications', 'ConcomitantMedication'),
+    ]:
+        val = row.get(_field)
+        if isinstance(val, str) and val.strip():
+            row[_field] = _resolve_code_csv(val, _model)
 
     # ── Staging modality — CTOMOP stores title ('c → Clinical'), EXACT expects code ('c') ─
     sm = row.get('staging_modalities')
@@ -281,9 +412,21 @@ def _normalize_ctomop_row(row: dict) -> dict:
     if not row.get('lactate_dehydrogenase_level') and row.get('ldh_u_l') is not None:
         row['lactate_dehydrogenase_level'] = row['ldh_u_l']
 
-    # ── Therapy JSON fields — CTOMOP stores free-text, not structured dicts ──────
-    # EXACT expects [{therapy: code, ...}] objects. CTOMOP's text values cannot be
-    # mapped to therapy codes, so clear them to avoid AttributeError in get_user_therapies().
+    # ── Therapy fields — resolve CTOMOP display names to EXACT therapy codes ────
+    # CTOMOP stores therapy names as human-readable strings (e.g. "Anastrozole
+    # (Arimidex) (Anastrozole)"). EXACT's eligibility filters use normalized codes
+    # (e.g. "anastrozole"). _resolve_therapy_code() does a title→code lookup via
+    # the LRU-cached Therapy/TherapyComponent map, stripping trailing parentheticals
+    # to match the EXACT title. Unresolvable values are set to None so they are
+    # treated as unknown (potential) by the matcher rather than silently skipping
+    # therapy-type exclusion checks.
+    for _tf in ('first_line_therapy', 'second_line_therapy', 'later_therapy'):
+        val = row.get(_tf)
+        if isinstance(val, str) and val.strip():
+            row[_tf] = _resolve_therapy_code(val)
+
+    # JSON list fields (supportive_therapies, later_therapies) expect
+    # [{therapy: code, ...}] objects — clear if CTOMOP sent raw text.
     for _tf in ('supportive_therapies', 'later_therapies'):
         val = row.get(_tf)
         if isinstance(val, str) and not val.strip().startswith('['):

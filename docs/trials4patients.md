@@ -127,3 +127,100 @@ Exact scores will vary. If a patient returns 0 trials, check:
 # Remove test trials (standalone mode only)
 python manage.py seed_test_trials --clear
 ```
+
+---
+
+## Comparing EXACT results against CancerBot
+
+`compare_trials` runs EXACT matching for a list of named patients and
+compares the top-N ranked trials against stored CancerBot trial IDs.
+
+```bash
+python manage.py compare_trials \
+  --input scripts/compare_input.json \
+  --output /tmp/compare_results \
+  --source-db-url "$PATIENT_DATABASE_URL" \
+  --top-n 5
+```
+
+`compare_input.json` is a JSON array where each entry has:
+
+| Field | Description |
+|-------|-------------|
+| `name` | Patient full name (for DB lookup) |
+| `email` | Patient email (used for DB lookup if available) |
+| `person_id` | Optional explicit person_id (highest-priority lookup) |
+| `zipcode` | Patient zip code (used for distance scoring — takes priority over DB value) |
+| `country_code` | Patient country code (default `US`) |
+| `cancerbot_trial_ids` | List of CancerBot top-N trial IDs to compare against |
+
+### Zip code priority
+
+The command resolves the patient's zip code in this order:
+1. `zipcode` field in `compare_input.json` (highest priority — kept current by `refresh_cb_trial_ids.py`)
+2. `postalCode` from `cancerbot_patients_data.json` (CB live data cache)
+3. `postal_code` column in the patient DB (lowest priority — may be stale)
+
+A warning is printed when the JSON zip differs from the DB value:
+```
+[zip override] JSON=02169/US  DB=02468  — using JSON zip for distance scoring
+```
+
+### Refreshing stored CancerBot trial IDs and zip codes
+
+```bash
+# Show diffs between stored and live CB data
+python scripts/refresh_cb_trial_ids.py
+
+# Update compare_input.json with live trial IDs and zip codes
+python scripts/refresh_cb_trial_ids.py --update
+```
+
+Zip-code changes are highlighted in bold yellow in the terminal output.
+
+### Output
+
+Two files are written per run:
+
+| File | Contents |
+|------|----------|
+| `{output}.json` | Per-patient comparison with overlap analysis, scores, ineligibility reasons |
+| `{output}.txt` | One line per patient: `name<TAB>exact_id1, exact_id2, ...` |
+
+---
+
+## Probing trial eligibility for a specific patient
+
+`probe_eligibility` explains why a trial is eligible or ineligible for a
+specific patient. Useful for debugging mismatches.
+
+```bash
+python manage.py probe_eligibility \
+  --person-id 20300 \
+  --trial-id 18502 \
+  --source-db-url "$PATIENT_DATABASE_URL"
+```
+
+Output:
+
+```
+=== Hannah Anderson (person_id=20300) ===
+  geo_point           : POINT (-71.0549 42.3601)
+  prior_therapy       : 'One line'
+  her2_status         : 'her2_minus'
+  estrogen_receptor   : 'er_plus_with_hi_exp'
+  ...
+
+Trial 18502 → ELIGIBLE (passes all filters)
+```
+
+If the trial is ineligible, all dropped filter attributes are listed:
+
+```
+Trial 42005 → INELIGIBLE. Dropped by:
+  therapies_required                         val=[]  dropped=1
+```
+
+> **Note**: The command uses `psql` subprocess (not a direct psycopg2 connection)
+> to avoid a double-free crash on macOS/conda when a second DB connection is
+> opened while Django's own connection is active.

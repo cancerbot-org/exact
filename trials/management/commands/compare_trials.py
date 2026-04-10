@@ -417,7 +417,12 @@ class Command(BaseCommand):
             name = patient['name']
             cancerbot_ids = [i for i in patient.get('cancerbot_trial_ids', []) if i not in missing_ids]
             cb_geo = cb_geo_by_name.get(name, {})
-            cb_zip = f"{cb_geo.get('country', '—')} / {cb_geo.get('postalCode', '—')}"
+            # JSON zipcode takes priority over cancerbot_patients_data.json geo;
+            # cb_geo is used as a last-resort fallback when the JSON has no zipcode.
+            json_zip     = patient.get('zipcode')
+            json_country = patient.get('country_code')
+            use_zip     = json_zip     or cb_geo.get('postalCode')
+            use_country = json_country or cb_geo.get('country') or 'US'
             self.stdout.write(f'  {name} ...', ending='')
 
             person_id, row = _lookup_patient(source_db_url, patient, strategy)
@@ -433,6 +438,17 @@ class Command(BaseCommand):
                 })
                 continue
 
+            # Warn when JSON zip differs from CTOMOP postal_code so the override is visible.
+            db_zip = row.get('postal_code')
+            if use_zip and db_zip and str(use_zip).strip() != str(db_zip).strip():
+                self.stdout.write(
+                    self.style.WARNING(
+                        f'\n    [zip override] JSON={use_zip}/{use_country}  DB={db_zip}  '
+                        f'— using JSON zip for distance scoring'
+                    ),
+                    ending='',
+                )
+
             n = len(cancerbot_ids)
             cb_scores = dict(cb_scores_by_name.get(name, {}))
             cb_token = cb_token_by_name.get(name)
@@ -441,8 +457,8 @@ class Command(BaseCommand):
             try:
                 exact_ids, exact_scores, probe, components, match_types = self._run_matching(
                     row, n,
-                    zipcode=cb_geo.get('postalCode') or patient.get('zipcode'),
-                    country_code=cb_geo.get('country') or patient.get('country_code', 'US'),
+                    zipcode=use_zip,
+                    country_code=use_country,
                     watch_ids=cancerbot_ids,
                     study_prefs=study_prefs,
                 )
@@ -472,7 +488,8 @@ class Command(BaseCommand):
             )
             for rank, tid in enumerate(exact_ids, 1):
                 self.stdout.write(f'    {rank}. https://app.cancerbot.org/t/{tid}')
-            self.stdout.write(f'    zip: {cb_zip}')
+            zip_label = f'{use_country} / {use_zip}' if use_zip else '—'
+            self.stdout.write(f'    zip: {zip_label}')
 
             # Score comparison table for all trials (overlap + disputed)
             exact_rank = {tid: rank for rank, tid in enumerate(exact_ids, 1)}
