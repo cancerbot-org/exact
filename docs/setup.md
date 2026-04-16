@@ -216,7 +216,7 @@ To wipe and re-seed:
 python manage.py seed_test_trials --clear
 ```
 
-See [trials4patients.md](trials4patients.md#standalone-local-testing-no-remote-databases) for how to run matches against these trials.
+See [scripts/README.md](../scripts/README.md) for how to run matches against these trials.
 
 ### Full standalone setup (from scratch)
 
@@ -275,7 +275,7 @@ No external databases are required — tests run entirely against the local
 ### End-to-end testing (patient → trial matching)
 
 For testing the full matching pipeline against real or test data, see
-[trials4patients.md](trials4patients.md). Two modes are available:
+[scripts/README.md](../scripts/README.md). Two modes are available:
 
 **With external databases** (requires `TRIALS_DATABASE_URL` and `PATIENT_DATABASE_URL`):
 
