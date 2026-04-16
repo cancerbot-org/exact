@@ -1,4 +1,5 @@
 import itertools
+import re
 from typing import TYPE_CHECKING
 
 from django.contrib.gis.db.models.functions import Distance
@@ -574,20 +575,37 @@ class TrialQuerySet(models.QuerySet):
                                         benefit_weight: float = 25.0,
                                         patient_burden_weight: float = 25.0,
                                         risk_weight: float = 25.0,
-                                        distance_penalty_weight: float = 25.0) -> QuerySet["Trial"]:
-        from django.db.models import F, ExpressionWrapper, Value, FloatField
+                                        distance_penalty_weight: float = 25.0,
+                                        geo_point=None,
+                                        recruitment_status=None) -> QuerySet["Trial"]:
+        from django.db.models import F, ExpressionWrapper, Value, FloatField, Subquery, OuterRef, Min
         from django.db.models.functions import Cast, Least, Coalesce
 
-        if not hasattr(self.query, 'annotations') or 'distance' not in self.query.annotations:
+        meters_per_200_miles = 200 * 1609.34
+
+        if not geo_point:
             distance_expr = Value(0.0)
         else:
-            distance_meters = Cast(F('distance'), output_field=FloatField())
+            from trials.models import LocationTrial
+            from django.contrib.gis.db.models.functions import Distance
 
-            meters_per_200_miles = 200 * 1609.34
+            status_values = get_recruitment_status_filter_values(recruitment_status)
+
+            min_dist_sq = LocationTrial.objects.filter(
+                trial=OuterRef('pk'),
+                location__geo_point__isnull=False,
+            )
+            if status_values is not None:
+                min_dist_sq = min_dist_sq.filter(recruitment_status__in=status_values)
+            min_dist_sq = min_dist_sq.annotate(
+                dist=Distance('location__geo_point', geo_point)
+            ).values('trial').annotate(
+                min_dist=Min('dist')
+            ).values('min_dist')
 
             distance_expr = Least(
                 ExpressionWrapper(
-                    distance_meters / meters_per_200_miles,
+                    Cast(Subquery(min_dist_sq), output_field=FloatField()) / meters_per_200_miles,
                     output_field=FloatField()
                 ),
                 Value(1.0),
@@ -690,7 +708,14 @@ class TrialQuerySet(models.QuerySet):
     def eligible_for_stage(self, stage):
         if stage is None or stage == '':
             return self
-        return self.filter(Q(stages__contains=stage) | Q(stages=[]))
+        # Also match parent stage in case patient has a sub-stage (e.g. IIIB → III).
+        # Normalization in _normalize_ctomop_row strips sub-stages at load time, but
+        # this makes the filter robust for any remaining sub-stage values.
+        parent_stage = re.sub(r'[A-C]$', '', stage)
+        q = Q(stages__contains=stage) | Q(stages=[])
+        if parent_stage != stage:
+            q |= Q(stages__contains=parent_stage)
+        return self.filter(q)
 
     def eligible_for_tumor_grade(self, tumor_grade):
         attr_min_name = 'tumor_grade_min'
@@ -981,15 +1006,33 @@ class TrialQuerySet(models.QuerySet):
             required_attr_name='languages_skills_required'
         )
 
+    # ── Receptor status parent-code expansion ─────────────────────────────────
+    # Trials may store a generic parent code (e.g. "er_plus") while the patient
+    # carries a specific child code (e.g. "er_plus_with_hi_exp") after CTOMOP
+    # normalization.  Including the parent in the filter ensures trials that
+    # accepted the generic code still match.
+    _ER_PARENTS = {'er_plus_with_hi_exp': 'er_plus', 'er_plus_with_low_exp': 'er_plus'}
+    _PR_PARENTS = {'pr_plus_with_hi_exp': 'pr_plus', 'pr_plus_with_low_exp': 'pr_plus'}
+    _HR_PARENTS = {'hr_plus_with_hi_exp': 'hr_plus', 'hr_plus_with_low_exp': 'hr_plus'}
+
+    @staticmethod
+    def _expand_receptor_codes(values: list[str], parent_map: dict) -> list[str]:
+        expanded = list(values)
+        for v in values:
+            parent = parent_map.get(v)
+            if parent and parent not in expanded:
+                expanded.append(parent)
+        return expanded
+
     def eligible_for_estrogen_receptor_statuses(self, estrogen_receptor_statuses: list[str]) -> models.QuerySet:
         return self.eligible_for_required_lists(
-            values=estrogen_receptor_statuses,
+            values=self._expand_receptor_codes(estrogen_receptor_statuses, self._ER_PARENTS),
             required_attr_name='estrogen_receptor_statuses_required'
         )
 
     def eligible_for_progesterone_receptor_statuses(self, progesterone_receptor_statuses: list[str]) -> models.QuerySet:
         return self.eligible_for_required_lists(
-            values=progesterone_receptor_statuses,
+            values=self._expand_receptor_codes(progesterone_receptor_statuses, self._PR_PARENTS),
             required_attr_name='progesterone_receptor_statuses_required'
         )
 
@@ -1007,7 +1050,7 @@ class TrialQuerySet(models.QuerySet):
 
     def eligible_for_hr_statuses(self, hr_statuses: list[str]) -> models.QuerySet:
         return self.eligible_for_required_lists(
-            values=hr_statuses,
+            values=self._expand_receptor_codes(hr_statuses, self._HR_PARENTS),
             required_attr_name='hr_statuses_required'
         )
 
@@ -1132,7 +1175,7 @@ class TrialQuerySet(models.QuerySet):
 
         for user_attr in mapping.keys():
             user_attr_value = patient_info_attr.get_value(user_attr)
-            if user_attr_value is None or str(user_attr_value) == '':
+            if patient_info_attr.is_attr_blank(user_attr):
                 continue
 
             trial_attr_meta = mapping[user_attr]
@@ -1175,7 +1218,6 @@ class TrialQuerySet(models.QuerySet):
                 elif user_attr == "prior_therapy":
                     scope = scope.eligible_for_prior_therapy(user_attr_value)
                     if has_no_prior_therapy and not is_therapies_filter_applied:
-                        # apply filter just once
                         scope = scope.eligible_for_therapy_related_things_from_lines(user_therapies, has_no_prior_therapy)
                         is_therapies_filter_applied = True
                 elif user_attr == "genetic_mutations":

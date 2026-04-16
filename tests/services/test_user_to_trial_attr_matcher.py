@@ -100,3 +100,88 @@ class TestUserToTrialAttrMatcher:
             'therapyComponentsRequired': {'status': 'matched', 'values': ['Bortezomib', 'Dexamethasone', 'Lenalidomide']},
             'therapyComponentsExcluded': {'status': 'matched', 'values': ['Bortezomib', 'Dexamethasone', 'Lenalidomide']}
         }
+
+    @pytest.mark.django_db
+    def test_receptor_status_hierarchy(self):
+        """
+        er_plus_with_hi_exp / er_plus_with_low_exp are subtypes of er_plus.
+        The matcher must return 'eligible' for a BC trial requiring er_plus when
+        the patient has one of those subtypes, and 'not_eligible' for er_minus.
+        Same logic applies to PR (pr_plus) and HR (hr_plus).
+        """
+        # --- ER ---
+        trial_er = TrialFactory(disease='breast cancer', estrogen_receptor_statuses_required=['er_plus'])
+
+        assert UserToTrialAttrMatcher(trial_er, PatientInfo(
+            disease='breast cancer', estrogen_receptor_status='er_plus_with_hi_exp'
+        )).trial_match_status() == 'eligible'
+
+        assert UserToTrialAttrMatcher(trial_er, PatientInfo(
+            disease='breast cancer', estrogen_receptor_status='er_plus_with_low_exp'
+        )).trial_match_status() == 'eligible'
+
+        assert UserToTrialAttrMatcher(trial_er, PatientInfo(
+            disease='breast cancer', estrogen_receptor_status='er_minus'
+        )).trial_match_status() == 'not_eligible'
+
+        # --- PR ---
+        trial_pr = TrialFactory(disease='breast cancer', progesterone_receptor_statuses_required=['pr_plus'])
+
+        assert UserToTrialAttrMatcher(trial_pr, PatientInfo(
+            disease='breast cancer', progesterone_receptor_status='pr_plus_with_hi_exp'
+        )).trial_match_status() == 'eligible'
+
+        assert UserToTrialAttrMatcher(trial_pr, PatientInfo(
+            disease='breast cancer', progesterone_receptor_status='pr_minus'
+        )).trial_match_status() == 'not_eligible'
+
+        # --- HR ---
+        trial_hr = TrialFactory(disease='breast cancer', hr_statuses_required=['hr_plus'])
+
+        assert UserToTrialAttrMatcher(trial_hr, PatientInfo(
+            disease='breast cancer', hr_status='hr_plus_with_hi_exp'
+        )).trial_match_status() == 'eligible'
+
+        assert UserToTrialAttrMatcher(trial_hr, PatientInfo(
+            disease='breast cancer', hr_status='hr_minus'
+        )).trial_match_status() == 'not_eligible'
+
+    @pytest.mark.django_db
+    def test_treatment_refractory_status_unknown_when_falsy(self):
+        """
+        treatment_refractory_status should return 'unknown' for any falsy patient value
+        (None, empty string), not only for None.  Matches CB's `if not value` logic.
+        """
+        # Trial that requires NOT refractory
+        trial = TrialFactory(not_refractory_required=True)
+        pi = PatientInfo(disease='multiple myeloma')
+
+        matcher = UserToTrialAttrMatcher(trial, pi)
+
+        # None → unknown
+        pi.treatment_refractory_status = None
+        assert matcher.attr_match_status('treatment_refractory_status') == 'unknown'
+
+        # Empty string → unknown (this was the bug: `is None` missed '')
+        pi.treatment_refractory_status = ''
+        assert matcher.attr_match_status('treatment_refractory_status') == 'unknown'
+
+        # A refractory patient → not_matched (the trial wants not-refractory)
+        pi.treatment_refractory_status = 'primaryRefractory'
+        assert matcher.attr_match_status('treatment_refractory_status') == 'not_matched'
+
+        # A not-refractory patient → matched
+        pi.treatment_refractory_status = 'notRefractory'
+        assert matcher.attr_match_status('treatment_refractory_status') == 'matched'
+
+    @pytest.mark.django_db
+    def test_treatment_refractory_status_trial_has_no_requirement(self):
+        """When trial doesn't require either refractory status → always matched."""
+        trial = TrialFactory(not_refractory_required=False, refractory_required=False)
+        pi = PatientInfo(disease='multiple myeloma')
+        matcher = UserToTrialAttrMatcher(trial, pi)
+
+        for value in (None, '', 'notRefractory', 'primaryRefractory'):
+            pi.treatment_refractory_status = value
+            assert matcher.attr_match_status('treatment_refractory_status') == 'matched', \
+                f'Expected matched for value={value!r}'

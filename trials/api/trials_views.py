@@ -112,6 +112,8 @@ class TrailsViewSet(viewsets.ReadOnlyModelViewSet):
                 patient_burden_weight=patient_burden_weight,
                 risk_weight=risk_weight,
                 distance_penalty_weight=distance_penalty_weight,
+                geo_point=patient_info.geo_point if patient_info else None,
+                recruitment_status=study_prefs.recruitment_status,
             )
 
         if self.action == 'retrieve':
@@ -190,6 +192,7 @@ class TrailsViewSet(viewsets.ReadOnlyModelViewSet):
             'counts': {},
             'template': template,
             'search_type': search_type,
+            'explain': self.request.query_params.get('explain', '').lower() == 'true',
         })
         return context
 

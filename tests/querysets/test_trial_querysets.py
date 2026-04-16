@@ -246,6 +246,55 @@ class TestTrialQuerySet:
         assert list(Trial.objects.eligible_for_therapy_related_things_from_lines(therapy_from_line)) == [t1, t4, t8, t9, t10]
 
     @pytest.mark.django_db
+    def test_eligible_for_therapy_related_things_from_lines_treatment_naive(self):
+        """
+        has_no_prior_therapy=True restricts to trials with all three *_required
+        fields empty (treatment-naive patients can only enroll in trials that
+        don't require prior therapy, components, or types).
+
+        The therapy_codes argument is irrelevant when has_no_prior_therapy=True —
+        only the empty-list check matters.
+        """
+        from trials.services.loaders.load_therapies import LoadTherapies
+        LoadTherapies().load_all()
+
+        # t1: all required fields empty → always eligible for treatment-naive
+        t1 = TrialFactory(
+            therapies_required=[], therapy_components_required=[], therapy_types_required=[],
+        )
+        # t2: requires a specific therapy → ineligible for treatment-naive
+        t2 = TrialFactory(
+            therapies_required=['vrd'], therapy_components_required=[], therapy_types_required=[],
+        )
+        # t3: requires a specific component → ineligible for treatment-naive
+        t3 = TrialFactory(
+            therapies_required=[], therapy_components_required=['bortezomib'], therapy_types_required=[],
+        )
+        # t4: requires a specific type → ineligible for treatment-naive
+        t4 = TrialFactory(
+            therapies_required=[], therapy_components_required=[], therapy_types_required=['proteasome_inhibitor'],
+        )
+        # t5: all three non-empty → ineligible for treatment-naive
+        t5 = TrialFactory(
+            therapies_required=['vrd'], therapy_components_required=['bortezomib'],
+            therapy_types_required=['proteasome_inhibitor'],
+        )
+
+        # With has_no_prior_therapy=True: only t1 qualifies regardless of codes passed
+        assert list(Trial.objects.eligible_for_therapy_related_things_from_lines(
+            [], has_no_prior_therapy=True
+        )) == [t1]
+        assert list(Trial.objects.eligible_for_therapy_related_things_from_lines(
+            ['vrd'], has_no_prior_therapy=True
+        )) == [t1]
+        assert list(Trial.objects.eligible_for_therapy_related_things_from_lines(
+            None, has_no_prior_therapy=True
+        )) == [t1]
+
+        # Sanity check: without the flag the normal path returns all 5 (codes=None → no filter)
+        assert Trial.objects.eligible_for_therapy_related_things_from_lines(None).count() == 5
+
+    @pytest.mark.django_db
     def test_eligible_for_min_max_value(self):
         t1 = TrialFactory(age_low_limit=18, age_high_limit=60)
         t2 = TrialFactory(age_low_limit=18, age_high_limit=None)
@@ -1146,7 +1195,7 @@ class TestTrialQuerySet:
         assert Trial.objects.filter_by_patient_info(patient_info, add_traces=True)[0].count() == 1
 
         # print("\n\n>>>>Trial.objects.filter_by_patient_info(patient_info, add_traces=True)[1]", Trial.objects.filter_by_patient_info(patient_info, add_traces=True)[1])
-        assert Trial.objects.filter_by_patient_info(patient_info, add_traces=True)[1] == [{'attr': 'patient_info.patient_age', 'val': 20, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.gender', 'val': 'M', 'records': 6, 'dropped': 0}, {'attr': 'patient_info.weight', 'val': 70, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.bmi', 'val': 24.221453287197235, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.systolic_blood_pressure', 'val': 90, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.diastolic_blood_pressure', 'val': 110, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.disease', 'val': 'multiple myeloma', 'records': 6, 'dropped': 0}, {'attr': 'patient_info.stage', 'val': 'II', 'records': 6, 'dropped': 0}, {'attr': 'patient_info.karnofsky_performance_score', 'val': 70, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.ecog_performance_status', 'val': 2, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.no_other_active_malignancies', 'val': True, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.pre_existing_condition_categories', 'val': ['pre_existing_condition_category_0', 'pre_existing_condition_category_1', 'pre_existing_condition_category_2'], 'records': 6, 'dropped': 0}, {'attr': 'patient_info.molecular_markers', 'val': 'KRAS', 'records': 6, 'dropped': 0}, {'attr': 'patient_info.plasma_cell_leukemia', 'val': True, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.progression', 'val': 'active', 'records': 6, 'dropped': 0}, {'attr': 'patient_info.measurable_disease_imwg', 'val': True, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.supportive_therapies', 'val': [], 'records': 6, 'dropped': 0}, {'attr': 'patient_info.prior_therapy', 'val': 'One line', 'records': 6, 'dropped': 0}, {'attr': 'patient_info.later_therapies', 'val': [], 'records': 6, 'dropped': 0}, {'attr': 'patient_info.stem_cell_transplant_history', 'val': ['Autologous'], 'records': 6, 'dropped': 0}, {'attr': 'patient_info.relapse_count', 'val': 2, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.absolute_neutrophile_count', 'val': 3000, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.platelet_count', 'val': 200, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.white_blood_cell_count', 'val': 6, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.serum_calcium_level', 'val': 9.3, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.creatinine_clearance_rate', 'val': 110, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.serum_creatinine_level', 'val': 0.8, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.hemoglobin_level', 'val': 15, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.meets_crab', 'val': False, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.estimated_glomerular_filtration_rate', 'val': 129.93, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.liver_enzyme_levels_ast', 'val': 24, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.liver_enzyme_levels_alt', 'val': 31, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.liver_enzyme_levels_alp', 'val': 100, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.albumin_level', 'val': 1.1, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.serum_bilirubin_level_total', 'val': 0.4, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.serum_bilirubin_level_direct', 'val': 0.2, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.monoclonal_protein_serum', 'val': 45, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.monoclonal_protein_urine', 'val': 14, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.lactate_dehydrogenase_level', 'val': 200, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.pulmonary_function_test_result', 'val': False, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.bone_imaging_result', 'val': False, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.ejection_fraction', 'val': 60, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.no_hiv_status', 'val': True, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.no_hepatitis_b_status', 'val': True, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.no_hepatitis_c_status', 'val': True, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.consent_capability', 'val': True, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.caregiver_availability_status', 'val': False, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.contraceptive_use', 'val': False, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.no_pregnancy_or_lactation_status', 'val': True, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.pregnancy_test_result', 'val': True, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.no_mental_health_disorder_status', 'val': False, 'records': 1, 'dropped': 5}, {'attr': 'patient_info.no_concomitant_medication_status', 'val': False, 'records': 1, 'dropped': 0}, {'attr': 'patient_info.no_tobacco_use_status', 'val': True, 'records': 1, 'dropped': 0}, {'attr': 'patient_info.no_substance_use_status', 'val': True, 'records': 1, 'dropped': 0}, {'attr': 'patient_info.no_geographic_exposure_risk', 'val': True, 'records': 1, 'dropped': 0}, {'attr': 'patient_info.no_active_infection_status', 'val': True, 'records': 1, 'dropped': 0}, {'attr': 'patient_info.renal_adequacy_status', 'val': False, 'records': 1, 'dropped': 0}]
+        assert Trial.objects.filter_by_patient_info(patient_info, add_traces=True)[1] == [{'attr': 'patient_info.patient_age', 'val': 20, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.gender', 'val': 'M', 'records': 6, 'dropped': 0}, {'attr': 'patient_info.weight', 'val': 70, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.bmi', 'val': 24.221453287197235, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.systolic_blood_pressure', 'val': 90, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.diastolic_blood_pressure', 'val': 110, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.disease', 'val': 'multiple myeloma', 'records': 6, 'dropped': 0}, {'attr': 'patient_info.stage', 'val': 'II', 'records': 6, 'dropped': 0}, {'attr': 'patient_info.karnofsky_performance_score', 'val': 70, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.ecog_performance_status', 'val': 2, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.no_other_active_malignancies', 'val': True, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.pre_existing_condition_categories', 'val': ['pre_existing_condition_category_0', 'pre_existing_condition_category_1', 'pre_existing_condition_category_2'], 'records': 6, 'dropped': 0}, {'attr': 'patient_info.molecular_markers', 'val': 'KRAS', 'records': 6, 'dropped': 0}, {'attr': 'patient_info.plasma_cell_leukemia', 'val': True, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.progression', 'val': 'active', 'records': 6, 'dropped': 0}, {'attr': 'patient_info.measurable_disease_imwg', 'val': True, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.prior_therapy', 'val': 'One line', 'records': 6, 'dropped': 0}, {'attr': 'patient_info.stem_cell_transplant_history', 'val': ['Autologous'], 'records': 6, 'dropped': 0}, {'attr': 'patient_info.relapse_count', 'val': 2, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.absolute_neutrophile_count', 'val': 3000, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.platelet_count', 'val': 200, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.white_blood_cell_count', 'val': 6, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.serum_calcium_level', 'val': 9.3, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.creatinine_clearance_rate', 'val': 110, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.serum_creatinine_level', 'val': 0.8, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.hemoglobin_level', 'val': 15, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.meets_crab', 'val': False, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.estimated_glomerular_filtration_rate', 'val': 129.93, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.liver_enzyme_levels_ast', 'val': 24, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.liver_enzyme_levels_alt', 'val': 31, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.liver_enzyme_levels_alp', 'val': 100, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.albumin_level', 'val': 1.1, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.serum_bilirubin_level_total', 'val': 0.4, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.serum_bilirubin_level_direct', 'val': 0.2, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.monoclonal_protein_serum', 'val': 45, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.monoclonal_protein_urine', 'val': 14, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.lactate_dehydrogenase_level', 'val': 200, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.ejection_fraction', 'val': 60, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.no_hiv_status', 'val': True, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.no_hepatitis_b_status', 'val': True, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.no_hepatitis_c_status', 'val': True, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.consent_capability', 'val': True, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.no_pregnancy_or_lactation_status', 'val': True, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.pregnancy_test_result', 'val': True, 'records': 6, 'dropped': 0}, {'attr': 'patient_info.no_mental_health_disorder_status', 'val': False, 'records': 1, 'dropped': 5}, {'attr': 'patient_info.no_concomitant_medication_status', 'val': False, 'records': 1, 'dropped': 0}, {'attr': 'patient_info.no_tobacco_use_status', 'val': True, 'records': 1, 'dropped': 0}, {'attr': 'patient_info.no_substance_use_status', 'val': True, 'records': 1, 'dropped': 0}, {'attr': 'patient_info.no_geographic_exposure_risk', 'val': True, 'records': 1, 'dropped': 0}, {'attr': 'patient_info.no_active_infection_status', 'val': True, 'records': 1, 'dropped': 0}, {'attr': 'patient_info.renal_adequacy_status', 'val': False, 'records': 1, 'dropped': 0}]
 
         # search with ULNs
 
@@ -1292,11 +1341,12 @@ class TestTrialQuerySet:
         # Checking goodness score calculation
         max_distance = None
 
-        trials = Trial.objects.with_distance_optimized(patient_info.geo_point, max_distance).with_goodness_score_optimized(
+        trials = Trial.objects.with_goodness_score_optimized(
             benefit_weight=self._BENEFIT_W,
             patient_burden_weight=self._BURDEN_W,
             risk_weight=self._RISK_W,
             distance_penalty_weight=self._DIST_W,
+            geo_point=patient_info.geo_point,
         ).order_by("id")
 
         self._check_goodness_score(trials[0], False, 0, patient_info)
@@ -1308,6 +1358,54 @@ class TestTrialQuerySet:
         self._check_goodness_score(trials[6], False, 62, patient_info)
         self._check_goodness_score(trials[7], True, 100, patient_info)
         self._check_goodness_score(trials[8], True, 66, patient_info)
+
+    @pytest.mark.django_db
+    def test_goodness_score_uses_geo_point_without_prior_distance_annotation(self):
+        """
+        Regression test: with_goodness_score_optimized must compute distance
+        via its own inline subquery when geo_point is supplied, independent of
+        whether with_distance_optimized was called first.
+
+        Before the fix, without a pre-existing 'distance' annotation the method
+        fell back to distance_expr = 0.0 (max distance score), so all trials
+        received the same distance contribution regardless of location.
+        """
+        country = CountryFactory(title='USA')
+        state = StateFactory(title='CA', country=country)
+
+        home_location = LocationFactory(
+            city='Home', state_id=state.id, country_id=country.id,
+            geo_point=Point(0.0, 0.0, srid=4326),
+        )
+        far_location = LocationFactory(
+            city='Far', state_id=state.id, country_id=country.id,
+            geo_point=Point(50.0, 0.0, srid=4326),  # far away
+        )
+
+        geo_point = Point(0.0, 0.0, srid=4326)
+
+        # Two identical trials, differing only in location distance
+        t_near = TrialFactory(benefit_score=10, patient_burden_score=10, risk_score=10)
+        LocationTrial.objects.create(trial=t_near, location=home_location)
+
+        t_far = TrialFactory(benefit_score=10, patient_burden_score=10, risk_score=10)
+        LocationTrial.objects.create(trial=t_far, location=far_location)
+
+        # Call with_goodness_score_optimized WITHOUT calling with_distance_optimized first
+        trials = Trial.objects.filter(id__in=[t_near.id, t_far.id]).with_goodness_score_optimized(
+            benefit_weight=25.0,
+            patient_burden_weight=25.0,
+            risk_weight=25.0,
+            distance_penalty_weight=25.0,
+            geo_point=geo_point,
+        )
+        scores = {t.id: t.goodness_score for t in trials}
+
+        # The near trial must score strictly higher than the far trial
+        assert scores[t_near.id] > scores[t_far.id], (
+            f'Expected near trial ({scores[t_near.id]}) > far trial ({scores[t_far.id]}); '
+            f'distance was not factored into the goodness score'
+        )
 
     @pytest.mark.django_db
     def test_eligible_for_researcher_email(self):
@@ -1326,4 +1424,72 @@ class TestTrialQuerySet:
         assert list(Trial.objects.eligible_for_researcher_email('val1').order_by('id')) == [t2, t3]
         assert list(Trial.objects.eligible_for_researcher_email('val2').order_by('id')) == [t2, t4]
         assert list(Trial.objects.eligible_for_researcher_email('val3').order_by('id')) == [t5]
+
+    @pytest.mark.django_db
+    def test_blank_list_attrs_not_in_traces(self):
+        """
+        supportive_therapies=[] and later_therapies=[] are blank (JSONField default).
+        filter_by_patient_info must skip them and not emit a trace entry for either.
+        """
+        TrialFactory()
+        patient_info = PatientInfo(
+            disease='multiple myeloma',
+            prior_therapy='One line',
+            supportive_therapies=[],
+            later_therapies=[],
+        )
+        normalize_patient_info(patient_info)
+
+        _, traces = Trial.objects.filter_by_patient_info(patient_info, add_traces=True)
+        trace_attrs = {t['attr'] for t in traces}
+
+        assert 'patient_info.supportive_therapies' not in trace_attrs
+        assert 'patient_info.later_therapies' not in trace_attrs
+
+    @pytest.mark.django_db
+    def test_estrogen_receptor_status_hierarchy(self):
+        """
+        er_plus_with_hi_exp and er_plus_with_low_exp are subtypes of er_plus.
+        A BC trial requiring er_plus must include patients with either subtype,
+        and must exclude patients with er_minus.
+        """
+        t_er_plus = TrialFactory(disease='breast cancer', estrogen_receptor_statuses_required=['er_plus'])
+        t_no_req  = TrialFactory(disease='breast cancer', estrogen_receptor_statuses_required=[])
+
+        assert Trial.objects.count() == 2
+
+        # Subtype er_plus_with_hi_exp → parent er_plus → should match
+        patient_hi = PatientInfo(disease='breast cancer', estrogen_receptor_status='er_plus_with_hi_exp')
+        result_hi = set(Trial.objects.filter_by_patient_info(patient_hi)[0])
+        assert t_er_plus in result_hi
+        assert t_no_req in result_hi
+
+        # Subtype er_plus_with_low_exp → parent er_plus → should match
+        patient_low = PatientInfo(disease='breast cancer', estrogen_receptor_status='er_plus_with_low_exp')
+        result_low = set(Trial.objects.filter_by_patient_info(patient_low)[0])
+        assert t_er_plus in result_low
+        assert t_no_req in result_low
+
+        # er_minus has no parent mapping → should NOT match er_plus requirement
+        patient_minus = PatientInfo(disease='breast cancer', estrogen_receptor_status='er_minus')
+        result_minus = set(Trial.objects.filter_by_patient_info(patient_minus)[0])
+        assert t_er_plus not in result_minus
+        assert t_no_req in result_minus
+
+    @pytest.mark.django_db
+    def test_progesterone_receptor_status_hierarchy(self):
+        """
+        pr_plus_with_hi_exp and pr_plus_with_low_exp are subtypes of pr_plus.
+        """
+        t_pr_plus = TrialFactory(disease='breast cancer', progesterone_receptor_statuses_required=['pr_plus'])
+        t_no_req  = TrialFactory(disease='breast cancer', progesterone_receptor_statuses_required=[])
+
+        patient_hi = PatientInfo(disease='breast cancer', progesterone_receptor_status='pr_plus_with_hi_exp')
+        result = set(Trial.objects.filter_by_patient_info(patient_hi)[0])
+        assert t_pr_plus in result
+
+        patient_minus = PatientInfo(disease='breast cancer', progesterone_receptor_status='pr_minus')
+        result = set(Trial.objects.filter_by_patient_info(patient_minus)[0])
+        assert t_pr_plus not in result
+        assert t_no_req in result
 

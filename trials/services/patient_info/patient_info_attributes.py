@@ -128,7 +128,9 @@ class PatientInfoAttributes:
 
         for attr in THERAPY_LINES_ATTRS_UNDERSCORED:
             if attr != 'later_therapies' and not self.is_attr_blank(attr):
-                out.append(self.get_value(attr))
+                value = self.get_value(attr)
+                if value is not None:
+                    out.append(value)
 
         return list(set(out))
 

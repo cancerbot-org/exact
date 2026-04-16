@@ -18,6 +18,20 @@ TRIAL_GENETIC_MUTATIONS_ATTRS_UNDERSCORED = ["mutation_genes_required", "mutatio
 
 ATTR_MAPPING_TYPE_COMPUTED = "computed"
 
+# Receptor status hierarchy: subtypes must also match generic parent codes.
+# E.g. a patient with er_plus_with_hi_exp is also er_plus.
+_ER_PARENT_CODES = {'er_plus_with_hi_exp': 'er_plus', 'er_plus_with_low_exp': 'er_plus'}
+_PR_PARENT_CODES = {'pr_plus_with_hi_exp': 'pr_plus', 'pr_plus_with_low_exp': 'pr_plus'}
+_HR_PARENT_CODES = {'hr_plus_with_hi_exp': 'hr_plus', 'hr_plus_with_low_exp': 'hr_plus'}
+
+
+def _receptor_uvalue(code, parent_map):
+    """Return code plus its generic parent (comma-joined) so the matcher can overlap against either."""
+    if not code:
+        return code
+    parent = parent_map.get(code)
+    return f"{code},{parent}" if parent else code
+
 # "priorSCT": "prior SCT",
 # "priorAutologousSCT": "prior autologous SCT",
 # "priorAllogeneicSCT": "prior allogeneic SCT",
@@ -499,7 +513,7 @@ USER_TO_TRIAL_ATTRS_MAPPING = {
         "attr": ["estrogen_receptor_statuses_required"],
         "uvalue_function": {
             "estrogen_receptor_statuses_required":
-                lambda patient_info: patient_info.estrogen_receptor_status,
+                lambda patient_info: _receptor_uvalue(patient_info.estrogen_receptor_status, _ER_PARENT_CODES),
         }
     },
     "progesterone_receptor_status": {
@@ -509,7 +523,7 @@ USER_TO_TRIAL_ATTRS_MAPPING = {
         "attr": ["progesterone_receptor_statuses_required"],
         "uvalue_function": {
             "progesterone_receptor_statuses_required":
-                lambda patient_info: patient_info.progesterone_receptor_status,
+                lambda patient_info: _receptor_uvalue(patient_info.progesterone_receptor_status, _PR_PARENT_CODES),
         }
     },
     "her2_status": {
@@ -539,7 +553,7 @@ USER_TO_TRIAL_ATTRS_MAPPING = {
         "attr": ["hr_statuses_required"],
         "uvalue_function": {
             "hr_statuses_required":
-                lambda patient_info: patient_info.hr_status,
+                lambda patient_info: _receptor_uvalue(patient_info.hr_status, _HR_PARENT_CODES),
         }
     },
     "tnbc_status": {

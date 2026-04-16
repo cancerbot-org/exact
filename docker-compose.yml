@@ -1,0 +1,41 @@
+services:
+
+  db:
+    image: postgis/postgis:16-3.5
+    platform: linux/amd64   # official image has no arm64 build; Rosetta handles this on Apple Silicon
+    environment:
+      POSTGRES_DB: exact
+      POSTGRES_USER: exact
+      POSTGRES_PASSWORD: exact
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U exact -d exact"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+
+  exact:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_HOST: db
+      DATABASE_NAME: exact
+      DATABASE_USER: exact
+      DATABASE_PASSWORD: exact
+      DATABASE_PORT: "5432"
+      MALLOC_NANO_ZONE: "0"
+    volumes:
+      - /tmp:/tmp
+    entrypoint: ["/app/docker/entrypoint.sh"]
+    command: ["sh", "-c", "gunicorn exact.wsgi --workers 2 --timeout 300 --log-file - --bind 0.0.0.0:${PORT:-8000}"]
+    ports:
+      - "${PORT:-8000}:${PORT:-8000}"
+
+volumes:
+  db_data:

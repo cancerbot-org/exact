@@ -148,6 +148,7 @@ List trials ordered by match score descending. For explicit sorting or the
 |---|---|---|
 | `type` | `all`, `eligible`, `potential`, `not_eligible` | Filter by match status |
 | `search` | string | Full-text search on title fields |
+| `explain` | `true` | Include per-criterion match breakdown in each trial (see `matchReasons` below) |
 
 **Response** (paginated, 200 per page by default):
 ```json
@@ -176,6 +177,7 @@ List trials ordered by match score descending. For explicit sorting or the
           "count": 4
         }
       ],
+      "matchReasons": null,
       "goodnessScore": 72,
       "patientBurdenScore": 15,
       "enrollmentCount": 120,
@@ -185,6 +187,36 @@ List trials ordered by match score descending. For explicit sorting or the
   ]
 }
 ```
+
+#### `matchReasons` — per-criterion explanation (`?explain=true`)
+
+When `?explain=true` is passed and a patient context is provided, each trial
+in the response includes a `matchReasons` array instead of `null`. Each entry
+describes one eligibility criterion:
+
+| Field | Type | Description |
+|---|---|---|
+| `attr` | string | Criterion key (matches `USER_TO_TRIAL_ATTRS_MAPPING`) |
+| `status` | `"matched"` \| `"unknown"` \| `"not_matched"` | Whether the patient meets this criterion |
+| `patientValue` | any \| `null` | The patient's value for this attribute (`null` if not provided) |
+| `trialRequirement` | any \| `null` | The trial's requirement — scalar, `{"min": …, "max": …}`, or `null` for computed criteria |
+
+Results are sorted: `not_matched` first (disqualifiers), then `unknown`
+(missing patient data), then `matched`. Only criteria relevant to the trial's
+disease are included.
+
+```json
+GET /trials/?explain=true
+
+"matchReasons": [
+  {"attr": "patient_age", "status": "not_matched", "patientValue": 70, "trialRequirement": {"min": 18, "max": 65}},
+  {"attr": "ecog_performance_status", "status": "unknown", "patientValue": null, "trialRequirement": 2},
+  {"attr": "gender", "status": "matched", "patientValue": "M", "trialRequirement": null}
+]
+```
+
+Without `?explain=true`, or when no patient context is present, `matchReasons`
+is `null`.
 
 ---
 
