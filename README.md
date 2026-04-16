@@ -13,9 +13,23 @@ The only data EXACT stores locally is authentication (users and tokens).
 | Doc | Description |
 |-----|-------------|
 | [docs/overview.md](docs/overview.md) | Architecture, key components, data flow |
+| [scripts/README.md](scripts/README.md) | Running trial search for patients |
 | [docs/setup.md](docs/setup.md) | Local development setup |
 | [docs/api.md](docs/api.md) | REST API reference |
-| [docs/trials4patients.md](docs/trials4patients.md) | End-to-end patient→trial matching (CLI) |
+
+## Running trial search for patients
+
+To match patients from an external patient database against the trial catalog
+without a running web server:
+
+```bash
+export TRIALS_DATABASE_URL=postgresql://...
+export PATIENT_DATABASE_URL=postgresql://...
+
+bash scripts/trials4patients.sh
+```
+
+See [scripts/README.md](scripts/README.md) for options and full usage.
 
 ## Quick start (connecting to an existing trials database)
 
