@@ -178,14 +178,62 @@ python scripts/refresh_cb_trial_ids.py --update
 
 Zip-code changes are highlighted in bold yellow in the terminal output.
 
+### `--explain` flag
+
+Pass `--explain` to print a per-attribute breakdown for every row where
+`type(E) != type(CB)` (eligible vs potential, or vice-versa):
+
+```bash
+python manage.py compare_trials \
+  --input scripts/compare_input.json \
+  --output /tmp/compare_results \
+  --source-db-url "$PATIENT_DATABASE_URL" \
+  --top-n 5 \
+  --explain
+```
+
+For each mismatched trial the command prints:
+- EXACT's per-attribute statuses (`matched` / `unknown` / `not_matched`) from `TrialMatchExplainer`
+- CB's `attributesToFillIn` (attributes the patient hasn't filled in on CB) from the cached search data
+
 ### Output
 
-Two files are written per run:
+Three files are written per run:
 
 | File | Contents |
 |------|----------|
 | `{output}.json` | Per-patient comparison with overlap analysis, scores, ineligibility reasons |
 | `{output}.txt` | One line per patient: `name<TAB>exact_id1, exact_id2, ...` |
+| `{output}.log` | Plain-text copy of terminal output (ANSI codes stripped) |
+
+---
+
+## Per-attribute match explanation for a patient+trial pair
+
+`explain_trial_match` shows the per-attribute match status for a specific
+patient+trial pair side-by-side from two sources: CTOMOP (EXACT's view) and
+`cancerbot_patients_data.json` (CancerBot's view). Useful for diagnosing
+eligible/potential or ranking discrepancies.
+
+```bash
+python manage.py explain_trial_match \
+  --person-id 20494 \
+  --trial-id 18141 \
+  --source-db-url "$PATIENT_DATABASE_URL"
+
+# With explicit patient name to match the CB data entry:
+python manage.py explain_trial_match \
+  --person-id 20494 \
+  --name "Charlotte Walker" \
+  --trial-id 18141 \
+  --source-db-url "$PATIENT_DATABASE_URL" \
+  --cb-data scripts/cancerbot_patients_data.json
+```
+
+Output: a table with one row per eligibility criterion showing `attr`,
+`status` (matched / unknown / not_matched), the CTOMOP patient value, and
+the CB patient value — making data gaps between the two sources immediately
+visible.
 
 ---
 

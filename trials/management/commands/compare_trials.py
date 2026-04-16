@@ -33,6 +33,30 @@ from django.core.management.base import BaseCommand
 
 logger = logging.getLogger(__name__)
 
+_ANSI_RE = None
+
+
+class _TeeWriter:
+    """Wraps Django's OutputWrapper and mirrors plain-text output to a file."""
+
+    def __init__(self, wrapped, log_file):
+        self._wrapped = wrapped
+        self._log_file = log_file
+
+    def write(self, msg='', style_func=None, ending=None):
+        self._wrapped.write(msg, style_func=style_func, ending=ending)
+        global _ANSI_RE
+        if _ANSI_RE is None:
+            import re
+            _ANSI_RE = re.compile(r'\x1b\[[0-9;]*m')
+        clean = _ANSI_RE.sub('', str(msg))
+        end = ending if ending is not None else '\n'
+        self._log_file.write(clean + end)
+        self._log_file.flush()
+
+    def __getattr__(self, name):
+        return getattr(self._wrapped, name)
+
 
 # ------------------------------------------------------------------
 # Patient DB helpers — all queries run via psql subprocess
@@ -289,7 +313,7 @@ def _study_preferences_from_cb(si):
 
 
 def _cb_fetch_trial(token, trial_id):
-    """Fetch a single trial from CancerBot with patient context (scores, distance)."""
+    """Fetch a single trial from CancerBot with patient context (scores, distance, match type)."""
     import requests
     try:
         resp = requests.get(
@@ -305,9 +329,125 @@ def _cb_fetch_trial(token, trial_id):
             'burden': t.get('patientBurdenScore'),
             'distance': t.get('distance'),
             'distanceUnits': t.get('distanceUnits'),
+            'matchingType': t.get('matchingType'),
+            'distancePenalty': t.get('distancePenalty'),  # 0-20 scale; used for score breakdown
         }
     except Exception:
         return None
+
+
+def _cb_fetch_wider_ranking(token, target_ids=None, page_size=50):
+    """
+    Fetch CB's ranked trial list for this patient, paginating until all
+    target_ids are found or results are exhausted.
+    Returns {trial_id: {'rank': int, 'matchingType': str}}.
+    """
+    import requests
+    found = {}
+    remaining = set(target_ids) if target_ids else set()
+    page = 1
+    offset = 0
+    while True:
+        try:
+            resp = requests.get(
+                f'{CANCERBOT_BASE}/api/v1/trials/search/',
+                headers={'Authorization': f'Token {token}'},
+                params={'page_size': page_size, 'page': page, 'type': 'eligible_and_potential'},
+                timeout=15,
+            )
+            if resp.status_code != 200:
+                break
+            data = resp.json()
+            results = data.get('results', [])
+            if not results:
+                break
+            for i, t in enumerate(results):
+                tid = t.get('trialId')
+                if tid is not None:
+                    found[tid] = {'rank': offset + i + 1, 'matchingType': t.get('matchingType')}
+                    remaining.discard(tid)
+            if not remaining or not data.get('next'):
+                break
+            page += 1
+            offset += len(results)
+        except Exception:
+            break
+    return found
+
+
+def _cb_fetch_user_weights(token):
+    """
+    Fetch the patient's goodness-score weights from CB's user-settings endpoint.
+    Returns a dict with keys benefit_weight, patient_burden_weight, risk_weight,
+    distance_penalty_weight (all floats, defaulting to 25.0 if missing).
+    """
+    import requests
+    defaults = {
+        'benefit_weight': 25.0,
+        'patient_burden_weight': 25.0,
+        'risk_weight': 25.0,
+        'distance_penalty_weight': 25.0,
+    }
+    try:
+        resp = requests.get(
+            f'{CANCERBOT_BASE}/api/v1/users/my-details/',
+            headers={'Authorization': f'Token {token}'},
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            return defaults
+        settings = resp.json().get('settings') or {}
+        return {
+            'benefit_weight': float(settings.get('benefitWeight') or 25.0),
+            'patient_burden_weight': float(settings.get('patientBurdenWeight') or 25.0),
+            'risk_weight': float(settings.get('riskWeight') or 25.0),
+            'distance_penalty_weight': float(settings.get('distancePenaltyWeight') or 25.0),
+        }
+    except Exception:
+        return defaults
+
+
+def _cb_fetch_trial_explain(token, trial_id):
+    """
+    Call CB's trial detail endpoint and extract per-attribute match status.
+    Returns a dict {title: match_status} for all attributes CB evaluated.
+
+    CB's matchingType=potential is determined by attributesToFillIn (top-level list of
+    attribute names the patient hasn't filled in).  trialEligibilityAttributes carries
+    per-attribute matchingType but only for attributes that were actually evaluated — it
+    does NOT surface the reason for potential status directly.  We combine both:
+      1. trialEligibilityAttributes — for not_matched / not_eligible entries
+      2. attributesToFillIn — for "patient hasn't filled this in" (potential reason)
+    """
+    import requests
+    try:
+        resp = requests.get(
+            f'{CANCERBOT_BASE}/api/v1/trials/{trial_id}/',
+            headers={'Authorization': f'Token {token}'},
+            timeout=15,
+        )
+        if resp.status_code != 200:
+            return {}
+        data = resp.json()
+        attrs = {}
+        # 1. trialEligibilityAttributes — not_matched / not_eligible entries
+        details = data.get('details') or {}
+        items = details.get('trialEligibilityAttributes') or []
+        for item in items:
+            title = item.get('label') or item.get('name') or '?'
+            status = item.get('matchingType')
+            if status and status != 'matched':
+                attrs[title] = status
+        # 2. attributesToFillIn — attributes CB is waiting on (reason for potential)
+        for attr in (data.get('attributesToFillIn') or []):
+            title = (attr.get('userAttributeTitle')
+                     or attr.get('trialAttributeName')
+                     or attr.get('label') or attr.get('name') or str(attr))
+            if title not in attrs:
+                attrs[title] = 'unknown (not filled in CB)'
+        return attrs
+    except Exception:
+        return {}
 
 
 class Command(BaseCommand):
@@ -339,8 +479,19 @@ class Command(BaseCommand):
             default=5,
             help='Number of top trials to compare (default: 5)',
         )
+        parser.add_argument(
+            '--explain',
+            action='store_true',
+            default=False,
+            help='For rows where type(E) != type(CB), print per-attribute breakdown '
+                 'from both EXACT (TrialMatchExplainer) and CB (detail API).',
+        )
 
     def handle(self, *args, **options):
+        log_path = f'{options["output"]}.log'
+        self._log_fh = open(log_path, 'w')
+        self.stdout = _TeeWriter(self.stdout, self._log_fh)
+
         if not shutil.which('psql'):
             self.stderr.write(self.style.ERROR('psql not found in PATH — required for patient DB queries'))
             return
@@ -389,6 +540,7 @@ class Command(BaseCommand):
                             'distance': t.get('distance'),
                             'distanceUnits': t.get('distanceUnits'),
                             'matchingType': t.get('matchingType'),
+                            'attributesToFillIn': t.get('attributesToFillIn') or [],
                         }
                         for i, t in enumerate(entry.get('top_trials', []))
                         if t.get('id') is not None
@@ -454,13 +606,22 @@ class Command(BaseCommand):
             cb_token = cb_token_by_name.get(name)
             raw_study_info = cb_study_info_by_name.get(name)
             study_prefs = _study_preferences_from_cb(raw_study_info) if raw_study_info else None
+            cb_weights = _cb_fetch_user_weights(cb_token) if cb_token else None
+            if cb_weights and any(v != 25.0 for v in cb_weights.values()):
+                self.stdout.write(
+                    f'  weights (from CB): benefit={cb_weights["benefit_weight"]} '
+                    f'burden={cb_weights["patient_burden_weight"]} '
+                    f'risk={cb_weights["risk_weight"]} '
+                    f'distance={cb_weights["distance_penalty_weight"]}'
+                )
             try:
-                exact_ids, exact_scores, probe, components, match_types = self._run_matching(
+                exact_ids, exact_scores, probe, components, match_types, trial_objects, exact_pi = self._run_matching(
                     row, n,
                     zipcode=use_zip,
                     country_code=use_country,
                     watch_ids=cancerbot_ids,
                     study_prefs=study_prefs,
+                    weights=cb_weights,
                 )
             except Exception as e:
                 logger.exception('Matching failed for %s', name)
@@ -495,6 +656,38 @@ class Command(BaseCommand):
             exact_rank = {tid: rank for rank, tid in enumerate(exact_ids, 1)}
             all_disputed = sorted(set(exact_ids) | set(cancerbot_ids))
             if all_disputed:
+                # Back-fill missing scores for all table rows via per-trial detail
+                # endpoint (covers CB-only trials with null stored score, and any
+                # trial not yet in cb_scores).
+                if cb_token:
+                    for tid in all_disputed:
+                        if cb_scores.get(tid, {}).get('score') is None:
+                            fetched = _cb_fetch_trial(cb_token, tid)
+                            if fetched:
+                                if tid not in cb_scores:
+                                    cb_scores[tid] = fetched
+                                else:
+                                    for k, v in fetched.items():
+                                        if cb_scores[tid].get(k) is None:
+                                            cb_scores[tid][k] = v
+
+                # Fetch a wider CB ranking for any trial still missing a rank
+                # (covers EXACT-only trials and overlap trials whose rank wasn't
+                # stored in cancerbot_patients_data.json).
+                missing_rank = [
+                    tid for tid in all_disputed
+                    if cb_scores.get(tid, {}).get('rank') is None
+                    and cb_scores.get(tid, {}).get('matchingType') != 'not_eligible'
+                ]
+                if missing_rank and cb_token:
+                    wider = _cb_fetch_wider_ranking(cb_token, target_ids=missing_rank)
+                    for tid, data in wider.items():
+                        if tid not in cb_scores:
+                            cb_scores[tid] = data
+                        else:
+                            cb_scores[tid].setdefault('rank', data.get('rank'))
+                            cb_scores[tid].setdefault('matchingType', data.get('matchingType'))
+
                 rows_t = []
                 for tid in all_disputed:
                     in_exact = tid in exact_set
@@ -502,12 +695,7 @@ class Command(BaseCommand):
                     tag = ('overlap' if in_exact and in_cb
                            else 'EXACT only' if in_exact
                            else 'CB only')
-                    # Fetch CB data for EXACT-only trials we don't have yet
-                    if in_exact and not in_cb and tid not in cb_scores and cb_token:
-                        fetched = _cb_fetch_trial(cb_token, tid)
-                        if fetched:
-                            cb_scores[tid] = fetched
-                    e_score = exact_scores.get(tid)
+                    e_score = exact_scores.get(tid) or probe.get(tid, {}).get('score')
                     cb_entry = cb_scores.get(tid, {})
                     c_score = cb_entry.get('score')
                     c_rank = cb_entry.get('rank')
@@ -521,14 +709,25 @@ class Command(BaseCommand):
                         e_rank_str = 'ineligible' + (f' ({", ".join(reasons[:3])})' if reasons else '')
                     else:
                         e_rank_str = '—'
-                    c_rank_str = f'rank #{c_rank}' if c_rank is not None else '—'
+                    if c_rank is not None:
+                        c_rank_str = f'rank #{c_rank}'
+                    elif cb_entry.get('matchingType') == 'not_eligible':
+                        c_rank_str = 'not_eligible'
+                    else:
+                        c_rank_str = '—'
                     comp = components.get(tid, {})
                     dist_m = comp.get('distance_m')
                     e_dist_str = f'{dist_m / 1609.34:.1f}mi' if dist_m is not None else '—'
                     cb_dist = cb_entry.get('distance')
                     cb_dist_units = cb_entry.get('distanceUnits', 'miles')
                     c_dist_str = f'{cb_dist}{cb_dist_units[0]}' if cb_dist is not None else '—'
-                    e_match = match_types.get(tid, '—')
+                    e_match = match_types.get(tid)
+                    if e_match is None:
+                        p_status = p.get('status')
+                        if p_status == 'ineligible':
+                            e_match = 'not_eligible'
+                        else:
+                            e_match = '—'
                     c_match = cb_entry.get('matchingType') or '—'
                     rows_t.append((str(tid), tag,
                                    str(e_score) if e_score is not None else '—',
@@ -549,6 +748,134 @@ class Command(BaseCommand):
                         v.ljust(col_w[i]) for i, v in enumerate(r)) + ' |')
 
                 self.stdout.write('    ' + sep)
+
+                # Score component breakdown for trials where E-score and CB-score differ
+                score_diff_rows = [
+                    r for r in rows_t
+                    if r[2] != '—' and r[3] != '—'
+                    and abs(float(r[2]) - float(r[3])) > 1
+                ]
+                if score_diff_rows:
+                    self.stdout.write('\n    ── score component breakdown (where |E-CB| > 1) ──')
+                    for r in score_diff_rows:
+                        tid_str = r[0]
+                        tid = int(tid_str)
+                        e_sc = float(r[2])
+                        c_sc = float(r[3])
+                        comp = components.get(tid, {})
+                        e_benefit = comp.get('benefit')
+                        e_burden  = comp.get('burden')
+                        e_risk    = comp.get('risk')
+                        dist_m    = comp.get('distance_m')
+                        cb_entry  = cb_scores.get(tid, {})
+                        cb_burden = cb_entry.get('burden')
+                        cb_dist   = cb_entry.get('distance')
+                        cb_dist_u = cb_entry.get('distanceUnits', 'miles')
+
+                        _200mi_m = 200 * 1609.34
+
+                        # EXACT contribution terms (0-25 each, weights all 25, sum=100)
+                        e_benefit_c = (e_benefit / 20 * 25) if e_benefit is not None else None
+                        e_burden_c  = ((1 - e_burden / 20) * 25) if e_burden is not None else None
+                        e_risk_c    = ((1 - e_risk / 20) * 25) if e_risk is not None else None
+                        if dist_m is not None:
+                            e_dist_c = (1 - min(dist_m, _200mi_m) / _200mi_m) * 25
+                        else:
+                            e_dist_c = None
+
+                        # CB contribution terms — burden is a stored field returned by API;
+                        # distance is rounded but good enough for approximation
+                        cb_burden_c = ((1 - cb_burden / 20) * 25) if cb_burden is not None else None
+                        if cb_dist is not None:
+                            cb_dist_m = cb_dist * (1000 if cb_dist_u == 'km' else 1609.34)
+                            cb_dist_c = (1 - min(cb_dist_m, _200mi_m) / _200mi_m) * 25
+                        else:
+                            cb_dist_c = None
+
+                        # Back-calc: CB benefit+risk contribution from known goodnessScore
+                        if cb_burden_c is not None and cb_dist_c is not None:
+                            cb_br_c = (c_sc - 0.5) - cb_burden_c - cb_dist_c
+                        else:
+                            cb_br_c = None
+                        e_br_c = (e_benefit_c + e_risk_c) if (e_benefit_c is not None and e_risk_c is not None) else None
+
+                        def _fmt(val, fmt='.1f'):
+                            return format(val, fmt) if val is not None else '?'
+
+                        self.stdout.write(
+                            f'    trial {tid}: E={e_sc} CB={c_sc} Δ={e_sc - c_sc:+.0f}'
+                        )
+                        e_dist_str = f'{dist_m / 1609.34:.0f}mi' if dist_m is not None else '?'
+                        self.stdout.write(
+                            f'      EXACT   benefit={e_benefit}({_fmt(e_benefit_c)})  '
+                            f'burden={e_burden}({_fmt(e_burden_c)})  '
+                            f'risk={e_risk}({_fmt(e_risk_c)})  '
+                            f'dist={e_dist_str}({_fmt(e_dist_c)})'
+                        )
+                        cb_dist_str = f'{cb_dist}{cb_dist_u[0]}' if cb_dist is not None else '?'
+                        self.stdout.write(
+                            f'      CB      burden={cb_burden}({_fmt(cb_burden_c)})  '
+                            f'dist={cb_dist_str}({_fmt(cb_dist_c)})  '
+                            f'benefit+risk(back-calc)={_fmt(cb_br_c)}  '
+                            f'vs EXACT benefit+risk={_fmt(e_br_c)}'
+                        )
+
+                # Per-attribute explain for rows where type(E) != type(CB)
+                if options.get('explain'):
+                    from trials.services.trial_match_explainer import TrialMatchExplainer
+                    for r in rows_t:
+                        tid_str, tag, _, _, _, _, e_m, c_m = r
+                        if e_m == c_m or e_m == '—' or c_m == '—':
+                            continue
+                        tid = int(tid_str)
+                        self.stdout.write(f'\n    ── explain trial {tid} (type(E)={e_m}, type(CB)={c_m}) ──')
+
+                        # EXACT side
+                        trial_obj = trial_objects.get(tid)
+                        if trial_obj is None:
+                            try:
+                                from trials.models import Trial as _Trial
+                                trial_obj = _Trial.objects.get(id=tid)
+                            except Exception:
+                                trial_obj = None
+                        if trial_obj and exact_pi:
+                            reasons = TrialMatchExplainer(trial_obj, exact_pi).explain()
+                            bad = [x for x in reasons if x['status'] != 'matched']
+                            if bad:
+                                self.stdout.write('    EXACT not-matched/unknown:')
+                                for x in bad:
+                                    self.stdout.write(
+                                        f'      [{x["status"]:11}] {x["attr"]:45} '
+                                        f'patient={str(x["patientValue"])[:30]}  '
+                                        f'trial={str(x["trialRequirement"])[:30]}'
+                                    )
+
+                        # CB side
+                        if cb_token:
+                            # Prefer cached attributesToFillIn from the search results
+                            # (detail endpoint doesn't return this field).
+                            cached_score = cb_scores.get(tid, {})
+                            cached_attrs_to_fill = cached_score.get('attributesToFillIn') or []
+                            if cached_attrs_to_fill:
+                                self.stdout.write('    CB potential — patient needs to fill in:')
+                                for attr in cached_attrs_to_fill:
+                                    title = (attr.get('userAttributeTitle')
+                                             or attr.get('trialAttributeName')
+                                             or str(attr))
+                                    self.stdout.write(f'      {title}')
+                            else:
+                                # Fall back to live detail endpoint (won't show attributesToFillIn
+                                # but may show not_matched eligibility attributes)
+                                cb_attrs = _cb_fetch_trial_explain(cb_token, tid)
+                                if cb_attrs:
+                                    self.stdout.write('    CB not-matched/unknown:')
+                                    for title, status in cb_attrs.items():
+                                        self.stdout.write(f'      [{status:11}] {title}')
+                                else:
+                                    self.stdout.write(
+                                        '    CB: no explain data available '
+                                        '(re-run fetch_cancerbot_patients.py to capture attributesToFillIn)'
+                                    )
 
             results.append({
                 'name': name,
@@ -592,8 +919,10 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS(f'\nJSON: {json_path}'))
         self.stdout.write(self.style.SUCCESS(f'TXT:  {txt_path}'))
+        self.stdout.write(self.style.SUCCESS(f'LOG:  {log_path}'))
+        self._log_fh.close()
 
-    def _run_matching(self, row, top_n, zipcode=None, country_code='US', watch_ids=None, study_prefs=None):
+    def _run_matching(self, row, top_n, zipcode=None, country_code='US', watch_ids=None, study_prefs=None, weights=None):
         """
         Build a PatientInfo from the DB row, run filtered_trials + goodness
         scoring, and return the top-N trial IDs ordered by goodness_score desc.
@@ -626,11 +955,14 @@ class Command(BaseCommand):
         )
         if pi.geo_point:
             queryset = queryset.with_distance_optimized(pi.geo_point, recruitment_status=study_info.recruitment_status)
+        w = weights or {}
         queryset = queryset.with_goodness_score_optimized(
-            benefit_weight=25.0,
-            patient_burden_weight=25.0,
-            risk_weight=25.0,
-            distance_penalty_weight=25.0,
+            benefit_weight=w.get('benefit_weight', 25.0),
+            patient_burden_weight=w.get('patient_burden_weight', 25.0),
+            risk_weight=w.get('risk_weight', 25.0),
+            distance_penalty_weight=w.get('distance_penalty_weight', 25.0),
+            geo_point=pi.geo_point,
+            recruitment_status=study_info.recruitment_status,
         )
         queryset = queryset.order_by('-goodness_score', 'id')
 
@@ -690,6 +1022,21 @@ class Command(BaseCommand):
                     'score': float(score) if score is not None else None,
                 }
             ineligible_ids = [tid for tid in watch_ids if tid not in eligible_watch]
+            # Score ineligible trials using the unfiltered queryset — goodness score
+            # is independent of eligibility and is useful for comparison.
+            if ineligible_ids:
+                ineligible_qs = Trial.objects.filter(id__in=ineligible_ids)
+                ineligible_qs = ineligible_qs.with_goodness_score_optimized(
+                    benefit_weight=w.get('benefit_weight', 25.0),
+                    patient_burden_weight=w.get('patient_burden_weight', 25.0),
+                    risk_weight=w.get('risk_weight', 25.0),
+                    distance_penalty_weight=w.get('distance_penalty_weight', 25.0),
+                    geo_point=pi.geo_point,
+                    recruitment_status=study_info.recruitment_status,
+                )
+                ineligible_scores = {t.id: getattr(t, 'goodness_score', None) for t in ineligible_qs}
+            else:
+                ineligible_scores = {}
             for tid in ineligible_ids:
                 _, patient_traces = Trial.objects.filter(id=tid).filter_by_patient_info(pi, add_traces=True)
                 reasons = [
@@ -697,6 +1044,12 @@ class Command(BaseCommand):
                     for t in (patient_traces or [])
                     if t.get('dropped', 0) > 0
                 ]
-                probe[tid] = {'status': 'ineligible', 'reasons': reasons}
+                score = ineligible_scores.get(tid)
+                probe[tid] = {
+                    'status': 'ineligible',
+                    'reasons': reasons,
+                    'score': float(score) if score is not None else None,
+                }
 
-        return top_ids, top_scores, probe, components, match_types
+        trial_objects = {t.id: t for t in candidate_trials + extra_watch_trials}
+        return top_ids, top_scores, probe, components, match_types, trial_objects, pi

@@ -422,7 +422,7 @@ class UserToTrialAttrMatcher:
                 if trial_attr_not_refractory_required is not True and trial_attr_refractory_required is not True:
                     return 'matched'
 
-                if patient_info_attr_value is None:
+                if not patient_info_attr_value:
                     return 'unknown'
 
                 #  "notRefractory": "Not Refractory (progression halted)",

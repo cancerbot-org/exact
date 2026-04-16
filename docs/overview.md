@@ -118,12 +118,25 @@ The SQL-level filtering layer. Key methods:
   active filters (disease, therapy, markers, distance, etc.) and annotates the
   queryset with `match_score`. `study_info` is a `StudyPreferences` dataclass
   built from query params; `search_options` carries additional search-level flags.
-- `with_goodness_score_optimized()` — annotates with a weighted composite score
-  (benefit, patient burden, risk, distance).
+- `with_goodness_score_optimized(geo_point=None, recruitment_status=None, ...)` —
+  annotates with a weighted composite score (benefit, patient burden, risk,
+  distance). When `geo_point` is provided it computes distance via an inline
+  subquery; `with_distance_optimized` does not need to be called first.
 - `with_distance_optimized(geo_point)` — annotates with distance to nearest
-  recruiting site.
+  recruiting site. Only needed when distance is used independently of the
+  goodness score (e.g. for sorting by distance alone).
 - `with_potential_attrs_count(patient_info)` — annotates each trial with the
   count of patient attributes that are blank but required.
+
+### `TrialMatchExplainer` (`trials/services/trial_match_explainer.py`)
+
+Produces a per-criterion eligibility explanation for a trial+patient pair.
+Used by `TrialSerializer` when `?explain=true` is passed to the search API,
+and by the `explain_trial_match` management command.
+
+Returns a list of `{attr, status, patientValue, trialRequirement}` dicts,
+sorted `not_matched → unknown → matched`. Only criteria relevant to the
+trial's disease are included.
 
 ### `TrialTemplates` / `TrialAttributes` (`trials/services/trial_details/`)
 

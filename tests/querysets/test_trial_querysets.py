@@ -246,6 +246,55 @@ class TestTrialQuerySet:
         assert list(Trial.objects.eligible_for_therapy_related_things_from_lines(therapy_from_line)) == [t1, t4, t8, t9, t10]
 
     @pytest.mark.django_db
+    def test_eligible_for_therapy_related_things_from_lines_treatment_naive(self):
+        """
+        has_no_prior_therapy=True restricts to trials with all three *_required
+        fields empty (treatment-naive patients can only enroll in trials that
+        don't require prior therapy, components, or types).
+
+        The therapy_codes argument is irrelevant when has_no_prior_therapy=True —
+        only the empty-list check matters.
+        """
+        from trials.services.loaders.load_therapies import LoadTherapies
+        LoadTherapies().load_all()
+
+        # t1: all required fields empty → always eligible for treatment-naive
+        t1 = TrialFactory(
+            therapies_required=[], therapy_components_required=[], therapy_types_required=[],
+        )
+        # t2: requires a specific therapy → ineligible for treatment-naive
+        t2 = TrialFactory(
+            therapies_required=['vrd'], therapy_components_required=[], therapy_types_required=[],
+        )
+        # t3: requires a specific component → ineligible for treatment-naive
+        t3 = TrialFactory(
+            therapies_required=[], therapy_components_required=['bortezomib'], therapy_types_required=[],
+        )
+        # t4: requires a specific type → ineligible for treatment-naive
+        t4 = TrialFactory(
+            therapies_required=[], therapy_components_required=[], therapy_types_required=['proteasome_inhibitor'],
+        )
+        # t5: all three non-empty → ineligible for treatment-naive
+        t5 = TrialFactory(
+            therapies_required=['vrd'], therapy_components_required=['bortezomib'],
+            therapy_types_required=['proteasome_inhibitor'],
+        )
+
+        # With has_no_prior_therapy=True: only t1 qualifies regardless of codes passed
+        assert list(Trial.objects.eligible_for_therapy_related_things_from_lines(
+            [], has_no_prior_therapy=True
+        )) == [t1]
+        assert list(Trial.objects.eligible_for_therapy_related_things_from_lines(
+            ['vrd'], has_no_prior_therapy=True
+        )) == [t1]
+        assert list(Trial.objects.eligible_for_therapy_related_things_from_lines(
+            None, has_no_prior_therapy=True
+        )) == [t1]
+
+        # Sanity check: without the flag the normal path returns all 5 (codes=None → no filter)
+        assert Trial.objects.eligible_for_therapy_related_things_from_lines(None).count() == 5
+
+    @pytest.mark.django_db
     def test_eligible_for_min_max_value(self):
         t1 = TrialFactory(age_low_limit=18, age_high_limit=60)
         t2 = TrialFactory(age_low_limit=18, age_high_limit=None)
@@ -1292,11 +1341,12 @@ class TestTrialQuerySet:
         # Checking goodness score calculation
         max_distance = None
 
-        trials = Trial.objects.with_distance_optimized(patient_info.geo_point, max_distance).with_goodness_score_optimized(
+        trials = Trial.objects.with_goodness_score_optimized(
             benefit_weight=self._BENEFIT_W,
             patient_burden_weight=self._BURDEN_W,
             risk_weight=self._RISK_W,
             distance_penalty_weight=self._DIST_W,
+            geo_point=patient_info.geo_point,
         ).order_by("id")
 
         self._check_goodness_score(trials[0], False, 0, patient_info)
@@ -1308,6 +1358,54 @@ class TestTrialQuerySet:
         self._check_goodness_score(trials[6], False, 62, patient_info)
         self._check_goodness_score(trials[7], True, 100, patient_info)
         self._check_goodness_score(trials[8], True, 66, patient_info)
+
+    @pytest.mark.django_db
+    def test_goodness_score_uses_geo_point_without_prior_distance_annotation(self):
+        """
+        Regression test: with_goodness_score_optimized must compute distance
+        via its own inline subquery when geo_point is supplied, independent of
+        whether with_distance_optimized was called first.
+
+        Before the fix, without a pre-existing 'distance' annotation the method
+        fell back to distance_expr = 0.0 (max distance score), so all trials
+        received the same distance contribution regardless of location.
+        """
+        country = CountryFactory(title='USA')
+        state = StateFactory(title='CA', country=country)
+
+        home_location = LocationFactory(
+            city='Home', state_id=state.id, country_id=country.id,
+            geo_point=Point(0.0, 0.0, srid=4326),
+        )
+        far_location = LocationFactory(
+            city='Far', state_id=state.id, country_id=country.id,
+            geo_point=Point(50.0, 0.0, srid=4326),  # far away
+        )
+
+        geo_point = Point(0.0, 0.0, srid=4326)
+
+        # Two identical trials, differing only in location distance
+        t_near = TrialFactory(benefit_score=10, patient_burden_score=10, risk_score=10)
+        LocationTrial.objects.create(trial=t_near, location=home_location)
+
+        t_far = TrialFactory(benefit_score=10, patient_burden_score=10, risk_score=10)
+        LocationTrial.objects.create(trial=t_far, location=far_location)
+
+        # Call with_goodness_score_optimized WITHOUT calling with_distance_optimized first
+        trials = Trial.objects.filter(id__in=[t_near.id, t_far.id]).with_goodness_score_optimized(
+            benefit_weight=25.0,
+            patient_burden_weight=25.0,
+            risk_weight=25.0,
+            distance_penalty_weight=25.0,
+            geo_point=geo_point,
+        )
+        scores = {t.id: t.goodness_score for t in trials}
+
+        # The near trial must score strictly higher than the far trial
+        assert scores[t_near.id] > scores[t_far.id], (
+            f'Expected near trial ({scores[t_near.id]}) > far trial ({scores[t_far.id]}); '
+            f'distance was not factored into the goodness score'
+        )
 
     @pytest.mark.django_db
     def test_eligible_for_researcher_email(self):

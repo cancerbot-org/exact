@@ -575,20 +575,37 @@ class TrialQuerySet(models.QuerySet):
                                         benefit_weight: float = 25.0,
                                         patient_burden_weight: float = 25.0,
                                         risk_weight: float = 25.0,
-                                        distance_penalty_weight: float = 25.0) -> QuerySet["Trial"]:
-        from django.db.models import F, ExpressionWrapper, Value, FloatField
+                                        distance_penalty_weight: float = 25.0,
+                                        geo_point=None,
+                                        recruitment_status=None) -> QuerySet["Trial"]:
+        from django.db.models import F, ExpressionWrapper, Value, FloatField, Subquery, OuterRef, Min
         from django.db.models.functions import Cast, Least, Coalesce
 
-        if not hasattr(self.query, 'annotations') or 'distance' not in self.query.annotations:
+        meters_per_200_miles = 200 * 1609.34
+
+        if not geo_point:
             distance_expr = Value(0.0)
         else:
-            distance_meters = Cast(F('distance'), output_field=FloatField())
+            from trials.models import LocationTrial
+            from django.contrib.gis.db.models.functions import Distance
 
-            meters_per_200_miles = 200 * 1609.34
+            status_values = get_recruitment_status_filter_values(recruitment_status)
+
+            min_dist_sq = LocationTrial.objects.filter(
+                trial=OuterRef('pk'),
+                location__geo_point__isnull=False,
+            )
+            if status_values is not None:
+                min_dist_sq = min_dist_sq.filter(recruitment_status__in=status_values)
+            min_dist_sq = min_dist_sq.annotate(
+                dist=Distance('location__geo_point', geo_point)
+            ).values('trial').annotate(
+                min_dist=Min('dist')
+            ).values('min_dist')
 
             distance_expr = Least(
                 ExpressionWrapper(
-                    distance_meters / meters_per_200_miles,
+                    Cast(Subquery(min_dist_sq), output_field=FloatField()) / meters_per_200_miles,
                     output_field=FloatField()
                 ),
                 Value(1.0),
@@ -1201,7 +1218,6 @@ class TrialQuerySet(models.QuerySet):
                 elif user_attr == "prior_therapy":
                     scope = scope.eligible_for_prior_therapy(user_attr_value)
                     if has_no_prior_therapy and not is_therapies_filter_applied:
-                        # apply filter just once
                         scope = scope.eligible_for_therapy_related_things_from_lines(user_therapies, has_no_prior_therapy)
                         is_therapies_filter_applied = True
                 elif user_attr == "genetic_mutations":

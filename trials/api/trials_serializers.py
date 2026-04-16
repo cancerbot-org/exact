@@ -93,6 +93,13 @@ class TrialSerializer(serializers.ModelSerializer):
                 response['distanceUnits'] = None
 
         response['matchingType'] = 'eligible' if not attrs_to_fill_in else 'potential'
+
+        if self.context.get('explain') and patient_info:
+            from trials.services.trial_match_explainer import TrialMatchExplainer
+            response['matchReasons'] = TrialMatchExplainer(instance, patient_info).explain()
+        else:
+            response['matchReasons'] = None
+
         return response
 
 

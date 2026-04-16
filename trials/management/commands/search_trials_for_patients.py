@@ -31,11 +31,12 @@ import json
 import logging
 import os
 import re
+import shutil
+import subprocess
 import sys
 from datetime import date
 from decimal import Decimal
 from functools import lru_cache
-from urllib.parse import urlparse
 
 from django.core.management.base import BaseCommand
 from trials.services.user_to_trial_attr_matcher import UserToTrialAttrMatcher
@@ -203,21 +204,6 @@ def _resolve_code_csv(display: str, model_name: str) -> str | None:
 logger = logging.getLogger(__name__)
 
 
-def _parse_db_url(url):
-    """
-    Parse a postgres[ql]:// URL into individual psycopg2.connect() kwargs.
-    Passing keyword args avoids a double-free crash in psycopg2 on macOS/conda
-    caused by libpq's internal URL parser conflicting with the system allocator.
-    """
-    parsed = urlparse(url)
-    return {
-        'host': parsed.hostname,
-        'port': parsed.port or 5432,
-        'dbname': parsed.path.lstrip('/'),
-        'user': parsed.username,
-        'password': parsed.password,
-        'sslmode': 'require',
-    }
 
 # ------------------------------------------------------------------
 # Columns to skip when building the PatientInfo object.
@@ -431,6 +417,21 @@ def _normalize_ctomop_row(row: dict) -> dict:
         val = row.get(_tf)
         if isinstance(val, str) and not val.strip().startswith('['):
             row[_tf] = None
+
+    # ── Behaviour fields — CTOMOP stores presence-of-condition (True = HAS condition)
+    # but EXACT/CB use absence-of-condition (True = FREE of condition).  Invert the
+    # four fields that have no explicit correct mapping in CTOMOP's populate pipeline.
+    # no_tobacco_use_status and no_pregnancy_or_lactation_status are excluded: CTOMOP
+    # already populates them in the correct direction.
+    for _bfield in (
+        'no_mental_health_disorder_status',
+        'no_substance_use_status',
+        'no_geographic_exposure_risk',
+        'no_concomitant_medication_status',
+    ):
+        val = row.get(_bfield)
+        if isinstance(val, bool):
+            row[_bfield] = not val
 
     # ── Metastatic status — CTOMOP column name differs from EXACT's ─────
     # CTOMOP: metastasis_status (text) → EXACT: metastatic_status (bool)
@@ -773,16 +774,12 @@ class Command(BaseCommand):
     # ------------------------------------------------------------------
 
     def _fetch_via_db(self, options, person_ids):
-        """Yield rows from the patient_info table via psycopg2."""
-        try:
-            import psycopg2
-            import psycopg2.extras
-        except ImportError:
-            self.stderr.write(self.style.ERROR(
-                'psycopg2 is required. Install it with: pip install psycopg2-binary'
-            ))
-            return None
+        """Fetch rows from the patient_info table via psql subprocess.
 
+        Uses psql instead of a direct psycopg2 connection to avoid a
+        double-free crash on macOS/conda when two libpq connections are open
+        simultaneously (Django's trials DB connection + a second connection).
+        """
         source_db_url = options['source_db_url']
         if not source_db_url:
             self.stderr.write(self.style.ERROR(
@@ -790,41 +787,48 @@ class Command(BaseCommand):
             ))
             return None
 
+        if not shutil.which('psql'):
+            self.stderr.write(self.style.ERROR(
+                'psql not found in PATH — required for patient DB queries.'
+            ))
+            return None
+
+        # Build query — person_ids and patient_limit are integers, safe to inline
+        query = '''
+            SELECT pi.*, p.gender_source_value, p.gender_concept_id
+            FROM patient_info pi
+            JOIN person p ON pi.person_id = p.person_id
+        '''
+        if person_ids:
+            ids_str = ', '.join(str(int(pid)) for pid in person_ids)
+            query += f' WHERE p.person_id IN ({ids_str})'
+        query += ' ORDER BY p.person_id'
+        if options.get('patient_limit'):
+            query += f' LIMIT {int(options["patient_limit"])}'
+
+        wrapped = f'SELECT row_to_json(t) FROM ({query}) t'
+        env = {**os.environ, 'PGSSLMODE': 'require'}
+
         try:
-            conn = psycopg2.connect(**_parse_db_url(source_db_url))
+            result = subprocess.run(
+                ['psql', source_db_url, '-t', '--no-psqlrc', '-c', wrapped],
+                capture_output=True,
+                text=True,
+                env=env,
+            )
         except Exception as e:
-            self.stderr.write(self.style.ERROR(f'DB connection failed: {e}'))
+            self.stderr.write(self.style.ERROR(f'psql failed: {e}'))
+            return None
+
+        if result.returncode != 0:
+            self.stderr.write(self.style.ERROR(f'psql error: {result.stderr.strip()}'))
             return None
 
         rows = []
-        try:
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
-                query = '''
-                    SELECT pi.*,
-                           p.gender_source_value,
-                           p.gender_concept_id
-                    FROM patient_info pi
-                    JOIN person p ON pi.person_id = p.person_id
-                '''
-                params = []
-                if person_ids:
-                    placeholders = ', '.join(['%s'] * len(person_ids))
-                    query += f' WHERE p.person_id IN ({placeholders})'
-                    params = person_ids
-                query += ' ORDER BY p.person_id'
-                if options.get('patient_limit'):
-                    query += ' LIMIT %s'
-                    params = list(params) + [options['patient_limit']]
-
-                cursor.execute(query, params)
-
-                while True:
-                    batch = cursor.fetchmany(options['batch_size'])
-                    if not batch:
-                        break
-                    rows.extend(dict(r) for r in batch)
-        finally:
-            conn.close()
+        for line in result.stdout.splitlines():
+            line = line.strip()
+            if line:
+                rows.append(json.loads(line))
 
         return rows
 
@@ -883,6 +887,8 @@ class Command(BaseCommand):
             patient_burden_weight=patient_burden_weight,
             risk_weight=risk_weight,
             distance_penalty_weight=distance_penalty_weight,
+            geo_point=pi.geo_point if pi else None,
+            recruitment_status=study_prefs.recruitment_status,
         )
 
         total = queryset.count()

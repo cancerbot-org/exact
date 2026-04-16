@@ -4,9 +4,12 @@ PatientInfo resolver — stateless (inline JSON) only.
 The caller sends patient data as {"patient_info": {...}} in the request body.
 No DB lookup is performed; PatientInfo is never persisted by this path.
 """
+import ast
 import datetime as dt
+import json
+from decimal import Decimal, InvalidOperation
 
-from django.db.models import DateField, DateTimeField
+from django.db.models import DateField, DateTimeField, DecimalField, FloatField, IntegerField, JSONField
 
 from trials.services.patient_info.normalize import normalize_patient_info
 
@@ -42,6 +45,10 @@ def _build_in_memory(data: dict):
 
     # Coerce date strings from JSON into proper date objects
     _coerce_dates(filtered, PatientInfo)
+    # Coerce numeric strings into proper numeric types (CB API can send "10.20" etc.)
+    _coerce_numerics(filtered, PatientInfo)
+    # Coerce string-encoded lists/dicts for JSONField columns (CB can send "[{...}]" as str)
+    _coerce_json_fields(filtered, PatientInfo)
 
     pi = PatientInfo(**filtered)
 
@@ -69,6 +76,51 @@ def _coerce_dates(data: dict, model_cls):
             try:
                 data[key] = dt.date.fromisoformat(val)
             except ValueError:
+                data[key] = None
+
+
+def _coerce_numerics(data: dict, model_cls):
+    """Coerce string values to numeric types for IntegerField/FloatField/DecimalField columns."""
+    for f in model_cls._meta.get_fields():
+        if not hasattr(f, 'column') or f.name not in data:
+            continue
+        val = data[f.name]
+        if not isinstance(val, str) or val == '':
+            continue
+        if isinstance(f, IntegerField):
+            try:
+                data[f.name] = int(val)
+            except (ValueError, TypeError):
+                data[f.name] = None
+        elif isinstance(f, FloatField):
+            try:
+                data[f.name] = float(val)
+            except (ValueError, TypeError):
+                data[f.name] = None
+        elif isinstance(f, DecimalField):
+            try:
+                data[f.name] = Decimal(val)
+            except (InvalidOperation, TypeError):
+                data[f.name] = None
+
+
+def _coerce_json_fields(data: dict, model_cls):
+    """Parse string-encoded JSON/Python-repr values for JSONField columns."""
+    json_fields = {
+        f.name for f in model_cls._meta.get_fields()
+        if hasattr(f, 'column') and isinstance(f, JSONField)
+    }
+    for key in json_fields & data.keys():
+        val = data[key]
+        if not isinstance(val, str):
+            continue
+        # Try JSON first, then Python repr (CB stores lists as Python repr strings)
+        try:
+            data[key] = json.loads(val)
+        except (ValueError, TypeError):
+            try:
+                data[key] = ast.literal_eval(val)
+            except (ValueError, SyntaxError):
                 data[key] = None
 
 

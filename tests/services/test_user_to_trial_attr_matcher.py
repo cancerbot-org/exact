@@ -145,3 +145,43 @@ class TestUserToTrialAttrMatcher:
         assert UserToTrialAttrMatcher(trial_hr, PatientInfo(
             disease='breast cancer', hr_status='hr_minus'
         )).trial_match_status() == 'not_eligible'
+
+    @pytest.mark.django_db
+    def test_treatment_refractory_status_unknown_when_falsy(self):
+        """
+        treatment_refractory_status should return 'unknown' for any falsy patient value
+        (None, empty string), not only for None.  Matches CB's `if not value` logic.
+        """
+        # Trial that requires NOT refractory
+        trial = TrialFactory(not_refractory_required=True)
+        pi = PatientInfo(disease='multiple myeloma')
+
+        matcher = UserToTrialAttrMatcher(trial, pi)
+
+        # None → unknown
+        pi.treatment_refractory_status = None
+        assert matcher.attr_match_status('treatment_refractory_status') == 'unknown'
+
+        # Empty string → unknown (this was the bug: `is None` missed '')
+        pi.treatment_refractory_status = ''
+        assert matcher.attr_match_status('treatment_refractory_status') == 'unknown'
+
+        # A refractory patient → not_matched (the trial wants not-refractory)
+        pi.treatment_refractory_status = 'primaryRefractory'
+        assert matcher.attr_match_status('treatment_refractory_status') == 'not_matched'
+
+        # A not-refractory patient → matched
+        pi.treatment_refractory_status = 'notRefractory'
+        assert matcher.attr_match_status('treatment_refractory_status') == 'matched'
+
+    @pytest.mark.django_db
+    def test_treatment_refractory_status_trial_has_no_requirement(self):
+        """When trial doesn't require either refractory status → always matched."""
+        trial = TrialFactory(not_refractory_required=False, refractory_required=False)
+        pi = PatientInfo(disease='multiple myeloma')
+        matcher = UserToTrialAttrMatcher(trial, pi)
+
+        for value in (None, '', 'notRefractory', 'primaryRefractory'):
+            pi.treatment_refractory_status = value
+            assert matcher.attr_match_status('treatment_refractory_status') == 'matched', \
+                f'Expected matched for value={value!r}'

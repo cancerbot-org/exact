@@ -71,12 +71,10 @@ class TestGoodnessWeightParams:
         call_args = _call_get_queryset(view, qs)
 
         assert call_args is not None, 'with_goodness_score_optimized was not called'
-        assert call_args.kwargs == {
-            'benefit_weight': 25.0,
-            'patient_burden_weight': 25.0,
-            'risk_weight': 25.0,
-            'distance_penalty_weight': 25.0,
-        }
+        assert call_args.kwargs['benefit_weight'] == 25.0
+        assert call_args.kwargs['patient_burden_weight'] == 25.0
+        assert call_args.kwargs['risk_weight'] == 25.0
+        assert call_args.kwargs['distance_penalty_weight'] == 25.0
 
     def test_custom_weights_forwarded(self):
         """Custom weight params are parsed and forwarded correctly."""
@@ -90,12 +88,10 @@ class TestGoodnessWeightParams:
         call_args = _call_get_queryset(view, qs)
 
         assert call_args is not None
-        assert call_args.kwargs == {
-            'benefit_weight': 40.0,
-            'patient_burden_weight': 30.0,
-            'risk_weight': 20.0,
-            'distance_penalty_weight': 10.0,
-        }
+        assert call_args.kwargs['benefit_weight'] == 40.0
+        assert call_args.kwargs['patient_burden_weight'] == 30.0
+        assert call_args.kwargs['risk_weight'] == 20.0
+        assert call_args.kwargs['distance_penalty_weight'] == 10.0
 
     def test_invalid_weight_falls_back_to_defaults(self):
         """Non-numeric weight value → all weights fall back to 25.0."""
@@ -104,12 +100,10 @@ class TestGoodnessWeightParams:
         call_args = _call_get_queryset(view, qs)
 
         assert call_args is not None
-        assert call_args.kwargs == {
-            'benefit_weight': 25.0,
-            'patient_burden_weight': 25.0,
-            'risk_weight': 25.0,
-            'distance_penalty_weight': 25.0,
-        }
+        assert call_args.kwargs['benefit_weight'] == 25.0
+        assert call_args.kwargs['patient_burden_weight'] == 25.0
+        assert call_args.kwargs['risk_weight'] == 25.0
+        assert call_args.kwargs['distance_penalty_weight'] == 25.0
 
     def test_partial_weights(self):
         """Only one weight param supplied → rest default to 25.0."""
@@ -118,12 +112,10 @@ class TestGoodnessWeightParams:
         call_args = _call_get_queryset(view, qs)
 
         assert call_args is not None
-        assert call_args.kwargs == {
-            'benefit_weight': 50.0,
-            'patient_burden_weight': 25.0,
-            'risk_weight': 25.0,
-            'distance_penalty_weight': 25.0,
-        }
+        assert call_args.kwargs['benefit_weight'] == 50.0
+        assert call_args.kwargs['patient_burden_weight'] == 25.0
+        assert call_args.kwargs['risk_weight'] == 25.0
+        assert call_args.kwargs['distance_penalty_weight'] == 25.0
 
     def test_float_string_parsed(self):
         """Decimal string weights are parsed as floats."""
