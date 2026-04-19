@@ -4,7 +4,7 @@ Management command: explain_trial_match
 For a specific patient+trial pair, shows the per-attribute match status from
 two sources side-by-side:
   - CTOMOP  — patient data read from the external patient DB (EXACT's view)
-  - CB      — patient data read from cancerbot_patients_data.json (CancerBot's view)
+  - CB      — patient data read from reference_patients_data.json (reference system's view)
 
 This makes it easy to see EXACTLY which attribute causes:
   - eligible (EXACT) vs potential (CB)  — attribute is known in CTOMOP, unknown in CB
@@ -17,13 +17,13 @@ Usage:
       --trial-id 18141 \\
       --source-db-url "$PATIENT_DATABASE_URL"
 
-    # Optionally pass explicit patient name to match CB data entry:
+    # Optionally pass explicit patient name to match reference data entry:
     python manage.py explain_trial_match \\
       --person-id 20494 \\
       --name "Charlotte Walker" \\
       --trial-id 18141 \\
       --source-db-url "$PATIENT_DATABASE_URL" \\
-      --cb-data scripts/cancerbot_patients_data.json
+      --cb-data scripts/reference_patients_data.json
 """
 import json
 import os
@@ -90,8 +90,8 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             '--cb-data',
-            default='scripts/cancerbot_patients_data.json',
-            help='Path to cancerbot_patients_data.json (default: scripts/cancerbot_patients_data.json)',
+            default='scripts/reference_patients_data.json',
+            help='Path to reference patients data JSON (default: scripts/reference_patients_data.json)',
         )
 
     def handle(self, *args, **options):

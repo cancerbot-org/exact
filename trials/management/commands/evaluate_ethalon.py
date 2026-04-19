@@ -3,7 +3,7 @@ Management command: evaluate_ethalon
 
 Compare two CSVs in ethalon format — no database, no live matching.
 
-  --ethalon   ground-truth CSV (e.g. produced by CancerBot)
+  --ethalon   ground-truth CSV
   --results   EXACT output CSV (e.g. produced by trials4patients_results.csv)
 
 Both files use the same format:
@@ -189,7 +189,7 @@ class Command(BaseCommand):
         parser.add_argument(
             '--ethalon',
             required=True,
-            help='Ground-truth CSV (e.g. from CancerBot).',
+            help='Ground-truth CSV.',
         )
         parser.add_argument(
             '--results',
