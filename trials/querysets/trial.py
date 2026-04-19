@@ -155,7 +155,7 @@ class TrialQuerySet(models.QuerySet):
         query = query.by_trial_type(study_info.trial_type)
         query = query.by_study_type(study_info.study_type)
         query = query.by_validated_only(study_info.validated_only)
-        if patient_info.disease is not None and patient_info.disease != '':
+        if patient_info and patient_info.disease is not None and patient_info.disease != '':
             query = query.filter(disease__icontains=patient_info.disease.lower())
 
         query = query.order_by('is_validated')
