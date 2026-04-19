@@ -24,7 +24,27 @@ import os
 
 from django.core.management.base import BaseCommand
 
-from trials.management.commands.evaluate_ethalon_live import _read_csv
+
+def _read_csv(path):
+    """Parse ethalon CSV. Returns list of row dicts with normalised keys."""
+    rows = []
+    with open(path, newline='') as f:
+        sample = f.read(4096)
+        f.seek(0)
+        try:
+            dialect = csv.Sniffer().sniff(sample, delimiters=',\t')
+        except csv.Error:
+            dialect = csv.excel
+        reader = csv.DictReader(f, dialect=dialect)
+        for lineno, row in enumerate(reader, start=2):
+            rows.append({
+                '_line':      lineno,
+                'person_id':  (row.get('CTOMOP Patient ID') or '').strip(),
+                'code':       (row.get('Trial') or '').strip(),
+                'match_type': (row.get('Eligible/Potential') or '').strip().lower(),
+                'score':      (row.get('Suitability Score') or '').strip(),
+            })
+    return rows
 
 
 # ---------------------------------------------------------------------------
