@@ -34,6 +34,9 @@ determines the trial's rank in the results (first row = rank 1).
 
 ## Running the evaluator
 
+No database connection required. The script loads `.env` from the project root
+if present, but no env vars are needed for CSV-only evaluation.
+
 ```bash
 bash scripts/evaluator/evaluate.sh scripts/evaluator/ethalon.csv results.csv
 ```

@@ -20,8 +20,13 @@ file and optionally to an evaluator-compatible CSV.
 bash scripts/trials4patients.sh
 ```
 
-All configuration is via environment variables. Set them inline or export
-beforehand, or put them in a `.env` file at the project root.
+All configuration is via environment variables. The script loads `.env` from
+the project root automatically, so the recommended approach is to copy
+`scripts/.env.example` to `.env`, fill in the values, and just run:
+
+```bash
+bash scripts/trials4patients.sh
+```
 
 ---
 
@@ -56,30 +61,26 @@ This CSV can be passed directly to the evaluator — see [evaluator.md](evaluato
 
 ## Examples
 
-Run for all patients, top 20 trials each:
+Typical `.env` for running against specific patients and saving evaluator CSV:
 
 ```bash
-PATIENT_DATABASE_URL=postgresql://... \
-TRIALS_DATABASE_URL=postgresql://... \
+TRIALS_DATABASE_URL=postgresql://user:pass@host:5432/trials
+PATIENT_DATABASE_URL=postgresql://user:pass@host:5432/patients
+
+PERSON_IDS=20291,20292,20293
+SEARCH_LIMIT=5
+RESULTS_CSV=results.csv
+```
+
+Then just:
+
+```bash
 bash scripts/trials4patients.sh
 ```
 
-Run for specific patients with limit 5, save evaluator CSV:
-
-```bash
-PATIENT_DATABASE_URL=postgresql://... \
-TRIALS_DATABASE_URL=postgresql://... \
-PERSON_IDS=20291,20292,20293 \
-SEARCH_LIMIT=5 \
-RESULTS_CSV=results.csv \
-bash scripts/trials4patients.sh
-```
-
-Extract person IDs from an ethalon CSV and run:
+To set `PERSON_IDS` from an ethalon CSV before running:
 
 ```bash
 PERSON_IDS=$(tail -n +2 scripts/evaluator/ethalon.csv | cut -d',' -f1 | sort -u | tr '\n' ',' | sed 's/,$//') \
-SEARCH_LIMIT=5 \
-RESULTS_CSV=results.csv \
 bash scripts/trials4patients.sh
 ```
