@@ -590,9 +590,20 @@ class Command(BaseCommand):
         parser.add_argument(
             '--format',
             dest='output_format',
-            choices=['json', 'csv'],
+            choices=['json', 'csv', 'ethalon'],
             default='json',
-            help='Output format for --output file (default: json)',
+            help='Output format for --output file. '
+                 '"ethalon" writes one row per trial in ethalon CSV format '
+                 '(CTOMOP Patient ID, Trial, Eligible/Potential, Suitability Score). '
+                 'Default: json',
+        )
+        parser.add_argument(
+            '--ethalon-csv',
+            type=str,
+            default='',
+            help='Also write results in ethalon CSV format to this path '
+                 '(CTOMOP Patient ID, Trial, Eligible/Potential, Suitability Score). '
+                 'Can be combined with --output / --format.',
         )
         parser.add_argument(
             '--dry-run',
@@ -768,6 +779,10 @@ class Command(BaseCommand):
         if options['output']:
             self._write_output(all_results, options['output'], options['output_format'])
             self.stdout.write(self.style.SUCCESS(f'Results written to: {options["output"]}'))
+
+        if options['ethalon_csv']:
+            self._write_output(all_results, options['ethalon_csv'], 'ethalon')
+            self.stdout.write(self.style.SUCCESS(f'Ethalon CSV written to: {options["ethalon_csv"]}'))
 
     # ------------------------------------------------------------------
     # Source: DB
@@ -993,3 +1008,20 @@ class Command(BaseCommand):
                         'best_goodness_score': r.get('best_goodness_score'),
                         'top_trial_ids': top_ids,
                     })
+
+        elif fmt == 'ethalon':
+            with open(path, 'w', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow([
+                    'CTOMOP Patient ID', 'Trial',
+                    'Eligible/Potential', 'Suitability Score',
+                ])
+                for r in results:
+                    for t in r.get('trials', []):
+                        trial_id = t.get('studyId') or ''
+                        writer.writerow([
+                            r['person_id'],
+                            trial_id,
+                            t.get('matchingType', ''),
+                            int(t['goodnessScore']) if t.get('goodnessScore') is not None else '',
+                        ])

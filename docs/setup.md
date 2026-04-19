@@ -250,6 +250,27 @@ python -m pytest tests/services/test_user_to_trial_attr_matcher.py
 python -m pytest tests/services/test_user_to_trial_attr_matcher.py::test_name -v
 ```
 
+#### Test environment setup
+
+Before running tests locally, create `.env.test` from the provided sample:
+
+```bash
+cp .env.test.sample .env.test
+```
+
+`.env.test` must **not** contain `TRIALS_DATABASE_URL` or `PATIENT_DATABASE_URL`.
+If those URLs are present (e.g. in your main `.env`), Django's `load_dotenv()`
+would route test queries to the remote databases, causing permission errors.
+
+The `ci.sh` script handles this automatically by setting `DOTENV_PATH=.env.test`
+before starting pytest, so Django loads the test env instead of `.env`:
+
+```bash
+bash ci.sh        # recommended — uses .env.test automatically
+# or manually:
+DOTENV_PATH=.env.test python -m pytest
+```
+
 #### Test database setup
 
 The test suite uses `conftest.py` to seed static reference data once per

@@ -34,7 +34,8 @@ if platform.system() == 'Darwin':
         if _geos_prefix:
             GEOS_LIBRARY_PATH = os.path.join(_geos_prefix, 'lib', 'libgeos_c.dylib')
 
-load_dotenv(os.path.join(BASE_DIR, '.env'))
+_dotenv_file = os.environ.get('DOTENV_PATH', '.env')
+load_dotenv(os.path.join(BASE_DIR, _dotenv_file))
 
 SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-change-me-in-production')
 

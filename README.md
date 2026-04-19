@@ -13,7 +13,8 @@ The only data EXACT stores locally is authentication (users and tokens).
 | Doc | Description |
 |-----|-------------|
 | [docs/overview.md](docs/overview.md) | Architecture, key components, data flow |
-| [scripts/README.md](scripts/README.md) | Running trial search for patients |
+| [docs/trials4patients.md](docs/trials4patients.md) | Running trial search for patients |
+| [docs/evaluator.md](docs/evaluator.md) | Evaluating EXACT results against ground truth |
 | [docs/setup.md](docs/setup.md) | Local development setup |
 | [docs/api.md](docs/api.md) | REST API reference |
 
@@ -29,7 +30,18 @@ export PATIENT_DATABASE_URL=postgresql://...
 bash scripts/trials4patients.sh
 ```
 
-See [scripts/README.md](scripts/README.md) for options and full usage.
+See [docs/trials4patients.md](docs/trials4patients.md) for all options.
+
+## Evaluating results
+
+To score EXACT results against a ground-truth CSV (ethalon):
+
+```bash
+RESULTS_CSV=results.csv bash scripts/trials4patients.sh
+bash scripts/evaluator/evaluate.sh scripts/evaluator/ethalon.csv results.csv
+```
+
+See [docs/evaluator.md](docs/evaluator.md) for metrics, full workflow, and output options.
 
 ## Quick start (connecting to an existing trials database)
 
