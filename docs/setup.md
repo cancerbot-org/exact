@@ -148,27 +148,26 @@ make runserver
 The API is available at `http://localhost:8000/`.
 Interactive API docs: `http://localhost:8000/swagger/`
 
-### 8. Make your first request
+### 8. Run your first patient-to-trial search
 
-With the test trials seeded (step 5 above), try listing all trials:
-
-```bash
-curl -s http://localhost:8000/trials/ \
-  -H "Authorization: Token <your-token>" \
-  | python -m json.tool | head -40
-```
-
-Or search with a patient profile:
+With the test trials seeded (step 5 above), run the CLI matching command:
 
 ```bash
-curl -s http://localhost:8000/trials/ \
-  -H "Authorization: Token <your-token>" \
-  -H "Content-Type: application/json" \
-  -d '{"patientInfo": {"disease": "multiple myeloma", "patientAge": 60, "priorTherapy": "One line"}}' \
-  | python -m json.tool | head -60
+python manage.py search_trials_for_patients \
+  --patient-id <ctomop_person_id>
 ```
 
-You should see up to 8 ranked trials with `matchScore` and `matchingType` fields.
+To search for multiple patients and save results to CSV:
+
+```bash
+PERSON_IDS=123,456 \
+RESULTS_CSV=results.csv \
+bash scripts/trials4patients.sh
+```
+
+See [docs/trials4patients.md](trials4patients.md) for all options and environment variables.
+
+The interactive API docs are still available at `http://localhost:8000/swagger/`.
 
 ---
 

@@ -129,7 +129,7 @@ class TrialQuerySet(models.QuerySet):
                 max_distance = D(mi=study_info.distance) if str(study_info.distance_units).lower() == 'miles' else D(
                     km=study_info.distance)
             query = query.with_distance_optimized(
-                geo_point=patient_info.geo_point,
+                geo_point=patient_info.geo_point if patient_info else None,
                 max_distance=max_distance,
                 recruitment_status=study_info.recruitment_status
             )
@@ -137,7 +137,7 @@ class TrialQuerySet(models.QuerySet):
             return query, []
 
         else:
-            query, study_traces = query.filter_by_study_info(study_info, add_traces, user_geo_point=patient_info.geo_point)
+            query, study_traces = query.filter_by_study_info(study_info, add_traces, user_geo_point=patient_info.geo_point if patient_info else None)
             query, patient_traces = query.filter_by_patient_info(patient_info, add_traces)
 
             return query, list(study_traces) + list(patient_traces)
@@ -155,7 +155,7 @@ class TrialQuerySet(models.QuerySet):
         query = query.by_trial_type(study_info.trial_type)
         query = query.by_study_type(study_info.study_type)
         query = query.by_validated_only(study_info.validated_only)
-        if patient_info.disease is not None and patient_info.disease != '':
+        if patient_info and patient_info.disease is not None and patient_info.disease != '':
             query = query.filter(disease__icontains=patient_info.disease.lower())
 
         query = query.order_by('is_validated')

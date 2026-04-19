@@ -1493,3 +1493,32 @@ class TestTrialQuerySet:
         assert t_pr_plus not in result
         assert t_no_req in result
 
+    @pytest.mark.django_db
+    def test_filtered_trials_none_patient_info_regular_search(self):
+        """filtered_trials must not raise when patient_info is None (regular search path)."""
+        from trials.services.study_preferences import StudyPreferences
+        TrialFactory()
+        qs, traces = Trial.objects.filtered_trials(
+            search_options={},
+            study_info=StudyPreferences(),
+            patient_info=None,
+            add_traces=False,
+            search_type=None,
+        )
+        # Should return a queryset without raising AttributeError on geo_point
+        assert qs.count() >= 0
+
+    @pytest.mark.django_db
+    def test_filtered_trials_none_patient_info_admin_search(self):
+        """filtered_trials must not raise when patient_info is None (admin/all search path)."""
+        from trials.services.study_preferences import StudyPreferences
+        TrialFactory()
+        qs, traces = Trial.objects.filtered_trials(
+            search_options={},
+            study_info=StudyPreferences(),
+            patient_info=None,
+            add_traces=False,
+            search_type='all',
+        )
+        assert qs.count() >= 0
+
