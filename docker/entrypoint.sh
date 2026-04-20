@@ -5,6 +5,7 @@ echo "Running migrations..."
 python manage.py migrate --run-syncdb
 
 bash /app/docker/init_trials_db.sh
+bash /app/docker/init_patients_db.sh
 
 cat <<'EOF'
 
@@ -17,5 +18,5 @@ cat <<'EOF'
 
 EOF
 
-echo "Migrations done. Starting: $*"
-exec "$@"
+echo "Starting gunicorn..."
+exec gunicorn exact.wsgi --workers 4 --timeout 300 --log-file - --bind 0.0.0.0:8000
