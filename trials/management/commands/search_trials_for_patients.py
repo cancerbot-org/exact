@@ -590,18 +590,18 @@ class Command(BaseCommand):
         parser.add_argument(
             '--format',
             dest='output_format',
-            choices=['json', 'csv', 'ethalon'],
+            choices=['json', 'csv', 'ground_truth'],
             default='json',
             help='Output format for --output file. '
-                 '"ethalon" writes one row per trial in ethalon CSV format '
+                 '"ground_truth" writes one row per trial in ground truth CSV format '
                  '(CTOMOP Patient ID, Trial, Eligible/Potential, Suitability Score). '
                  'Default: json',
         )
         parser.add_argument(
-            '--ethalon-csv',
+            '--ground-truth-csv',
             type=str,
             default='',
-            help='Also write results in ethalon CSV format to this path '
+            help='Also write results in ground truth CSV format to this path '
                  '(CTOMOP Patient ID, Trial, Eligible/Potential, Suitability Score). '
                  'Can be combined with --output / --format.',
         )
@@ -780,9 +780,9 @@ class Command(BaseCommand):
             self._write_output(all_results, options['output'], options['output_format'])
             self.stdout.write(self.style.SUCCESS(f'Results written to: {options["output"]}'))
 
-        if options['ethalon_csv']:
-            self._write_output(all_results, options['ethalon_csv'], 'ethalon')
-            self.stdout.write(self.style.SUCCESS(f'Ethalon CSV written to: {options["ethalon_csv"]}'))
+        if options['ground_truth_csv']:
+            self._write_output(all_results, options['ground_truth_csv'], 'ground_truth')
+            self.stdout.write(self.style.SUCCESS(f'Ground truth CSV written to: {options["ground_truth_csv"]}'))
 
     # ------------------------------------------------------------------
     # Source: DB
@@ -1009,7 +1009,7 @@ class Command(BaseCommand):
                         'top_trial_ids': top_ids,
                     })
 
-        elif fmt == 'ethalon':
+        elif fmt == 'ground_truth':
             with open(path, 'w', newline='') as f:
                 writer = csv.writer(f)
                 writer.writerow([

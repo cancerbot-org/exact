@@ -1,9 +1,9 @@
 """
-Tests for evaluate_ethalon management command.
+Tests for evaluate_ground_truth management command.
 
 Covers:
 - _load_results()      — results CSV → per-patient actual dicts with inferred ranks
-- _compare_patient()   — same metrics as evaluate_ethalon_live but with dynamic penalty_rank
+- _compare_patient()   — same metrics as evaluate_ground_truth_live but with dynamic penalty_rank
 - _aggregate()         — summary includes inferred top_n / penalty_rank
 - TOP_N inference      — max rows per patient in results CSV
 """
@@ -11,7 +11,7 @@ import textwrap
 
 import pytest
 
-from trials.management.commands.evaluate_ethalon import (
+from trials.management.commands.evaluate_ground_truth import (
     _aggregate,
     _compare_patient,
     _load_results,
@@ -28,8 +28,8 @@ def _write_csv(tmp_path, content, name='data.csv'):
     return str(p)
 
 
-def _ethalon_rows(*entries):
-    """Build minimal ethalon row dicts from (person_id, code, match_type, score) tuples."""
+def _ground_truth_rows(*entries):
+    """Build minimal ground truth row dicts from (person_id, code, match_type, score) tuples."""
     return [
         {'_line': i + 2, 'person_id': str(pid), 'code': code,
          'match_type': mt, 'score': str(score)}
@@ -134,7 +134,7 @@ class TestTopNInference:
 
 class TestComparePatient:
     def test_all_found(self):
-        expected = _ethalon_rows((99, 'NCT001', 'eligible', 80), (99, 'NCT002', 'potential', 70))
+        expected = _ground_truth_rows((99, 'NCT001', 'eligible', 80), (99, 'NCT002', 'potential', 70))
         actual = [
             {'code': 'NCT001', 'study_id': 'NCT001', 'match_type': 'eligible',  'goodness_score': 80.0, 'rank': 1},
             {'code': 'NCT002', 'study_id': 'NCT002', 'match_type': 'potential', 'goodness_score': 70.0, 'rank': 2},
@@ -145,19 +145,19 @@ class TestComparePatient:
         assert r['precision'] == 1.0
 
     def test_none_found_uses_penalty_rank(self):
-        expected = _ethalon_rows((99, 'NCT001', 'eligible', 80))
+        expected = _ground_truth_rows((99, 'NCT001', 'eligible', 80))
         r = _compare_patient('99', expected, [], penalty_rank=6)
         assert r['tp'] == 0
         assert r['recall'] == 0.0
         assert r['trials'][0]['rank'] == 6
 
     def test_mrr_uses_penalty_rank(self):
-        expected = _ethalon_rows((99, 'NCT001', 'eligible', 80))
+        expected = _ground_truth_rows((99, 'NCT001', 'eligible', 80))
         r = _compare_patient('99', expected, [], penalty_rank=6)
         assert r['mrr'] == pytest.approx(1.0 / 6, abs=1e-4)
 
     def test_type_match_rate(self):
-        expected = _ethalon_rows(
+        expected = _ground_truth_rows(
             (99, 'NCT001', 'eligible', 80),
             (99, 'NCT002', 'eligible', 70),
         )
@@ -169,20 +169,20 @@ class TestComparePatient:
         assert r['type_match_rate'] == pytest.approx(0.5)
 
     def test_score_match_rate_exact(self):
-        expected = _ethalon_rows((99, 'NCT001', 'eligible', 80))
+        expected = _ground_truth_rows((99, 'NCT001', 'eligible', 80))
         actual = [{'code': 'NCT001', 'study_id': 'NCT001', 'match_type': 'eligible', 'goodness_score': 80.0, 'rank': 1}]
         r = _compare_patient('99', expected, actual, penalty_rank=6)
         assert r['score_match_rate'] == 1.0
 
     def test_score_match_rate_off_by_one(self):
-        expected = _ethalon_rows((99, 'NCT001', 'eligible', 80))
+        expected = _ground_truth_rows((99, 'NCT001', 'eligible', 80))
         actual = [{'code': 'NCT001', 'study_id': 'NCT001', 'match_type': 'eligible', 'goodness_score': 81.0, 'rank': 1}]
         r = _compare_patient('99', expected, actual, penalty_rank=6)
         assert r['score_match_rate'] == 0.0
 
     def test_fp_count(self):
         # 3 actual results, 1 expected — 1 TP, 2 FP
-        expected = _ethalon_rows((99, 'NCT001', 'eligible', 80))
+        expected = _ground_truth_rows((99, 'NCT001', 'eligible', 80))
         actual = [
             {'code': 'NCT001', 'study_id': 'NCT001', 'match_type': 'eligible', 'goodness_score': 80.0, 'rank': 1},
             {'code': 'NCT002', 'study_id': 'NCT002', 'match_type': 'potential', 'goodness_score': 75.0, 'rank': 2},
@@ -194,7 +194,7 @@ class TestComparePatient:
 
     def test_score_mae_and_bias(self):
         # NCT001: actual 90 vs expected 80 (+10), NCT002: actual 65 vs expected 70 (-5)
-        expected = _ethalon_rows((99, 'NCT001', 'eligible', 80), (99, 'NCT002', 'potential', 70))
+        expected = _ground_truth_rows((99, 'NCT001', 'eligible', 80), (99, 'NCT002', 'potential', 70))
         actual = [
             {'code': 'NCT001', 'study_id': 'NCT001', 'match_type': 'eligible',  'goodness_score': 90.0, 'rank': 1},
             {'code': 'NCT002', 'study_id': 'NCT002', 'match_type': 'potential', 'goodness_score': 65.0, 'rank': 2},
@@ -204,14 +204,14 @@ class TestComparePatient:
         assert r['score_bias'] == pytest.approx(2.5)   # (10 - 5) / 2
 
     def test_score_mae_none_when_no_found(self):
-        expected = _ethalon_rows((99, 'NCT001', 'eligible', 80))
+        expected = _ground_truth_rows((99, 'NCT001', 'eligible', 80))
         r = _compare_patient('99', expected, [], penalty_rank=6)
         assert r['score_mae'] is None
         assert r['score_bias'] is None
 
     def test_partial_match_with_fp_and_score_diff(self):
         # 1 found with wrong score, 1 missing, 1 FP — mirrors patient 2002 in synthetic CSV
-        expected = _ethalon_rows(
+        expected = _ground_truth_rows(
             (99, 'NCT001', 'eligible', 90),
             (99, 'NCT002', 'potential', 80),
             (99, 'NCT003', 'potential', 70),
@@ -232,7 +232,7 @@ class TestComparePatient:
 
     def test_patient_absent_from_results(self):
         # Patient has expected trials but results CSV had no rows for them
-        expected = _ethalon_rows(
+        expected = _ground_truth_rows(
             (99, 'NCT001', 'eligible', 85),
             (99, 'NCT002', 'potential', 75),
         )

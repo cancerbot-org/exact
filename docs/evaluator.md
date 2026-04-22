@@ -10,9 +10,9 @@ See [Typical end-to-end workflow](#typical-end-to-end-workflow) below.
 
 ---
 
-## CSV format (ethalon / results)
+## CSV format
 
-Both the ground-truth ethalon and the EXACT results CSV use the same format:
+Both the ground-truth and the EXACT results CSV use the same format:
 
 ```
 CTOMOP Patient ID,Trial,Eligible/Potential,Suitability Score
@@ -38,14 +38,14 @@ No database connection required. The script loads `.env` from the project root
 if present, but no env vars are needed for CSV-only evaluation.
 
 ```bash
-bash scripts/evaluator/evaluate.sh scripts/evaluator/ethalon.csv results.csv
+bash scripts/evaluator/evaluate.sh scripts/evaluator/ground_truth.csv results.csv
 ```
 
 With JSON output for deeper analysis:
 
 ```bash
 bash scripts/evaluator/evaluate.sh \
-  scripts/evaluator/ethalon.csv \
+  scripts/evaluator/ground_truth.csv \
   results.csv \
   --output /tmp/comparison.json
 ```
@@ -58,10 +58,10 @@ trials that are expected but not found.
 
 ## Typical end-to-end workflow
 
-**Step 1 — Extract person IDs from the ethalon**
+**Step 1 — Extract person IDs from the ground truth CSV**
 
 ```bash
-PERSON_IDS=$(tail -n +2 scripts/evaluator/ethalon.csv | cut -d',' -f1 | sort -u | tr '\n' ',' | sed 's/,$//')
+PERSON_IDS=$(tail -n +2 scripts/evaluator/ground_truth.csv | cut -d',' -f1 | sort -u | tr '\n' ',' | sed 's/,$//')
 ```
 
 **Step 2 — Run EXACT matching and save results as CSV**
@@ -80,14 +80,14 @@ bash scripts/trials4patients.sh
 **Step 3 — Evaluate results against ground truth**
 
 ```bash
-bash scripts/evaluator/evaluate.sh scripts/evaluator/ethalon.csv results.csv
+bash scripts/evaluator/evaluate.sh scripts/evaluator/ground_truth.csv results.csv
 ```
 
 **Step 4 — Save full breakdown for further analysis**
 
 ```bash
 bash scripts/evaluator/evaluate.sh \
-  scripts/evaluator/ethalon.csv results.csv \
+  scripts/evaluator/ground_truth.csv results.csv \
   --output /tmp/comparison.json
 ```
 
@@ -137,8 +137,8 @@ Low recall can have two distinct causes:
 
 | Path | Description |
 |---|---|
-| `scripts/evaluator/ethalon.csv` | Ground-truth trial assignments |
+| `scripts/evaluator/ground_truth.csv` | Ground-truth trial assignments |
 | `scripts/evaluator/evaluate.sh` | CSV evaluation wrapper |
 | `scripts/trials4patients.sh` | Runs EXACT matching, produces results CSV — see [trials4patients.md](trials4patients.md) |
-| `trials/management/commands/evaluate_ethalon.py` | CSV evaluation command |
-| `tests/management/test_evaluate_ethalon.py` | Unit tests — CSV evaluator |
+| `trials/management/commands/evaluate_ground_truth.py` | CSV evaluation command |
+| `tests/management/test_evaluate_ground_truth.py` | Unit tests — CSV evaluator |
