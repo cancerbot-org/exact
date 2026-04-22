@@ -78,9 +78,9 @@ Then just:
 bash scripts/trials4patients.sh
 ```
 
-To set `PERSON_IDS` from an ethalon CSV before running:
+To set `PERSON_IDS` from an ground truth CSV before running:
 
 ```bash
-PERSON_IDS=$(tail -n +2 scripts/evaluator/ethalon.csv | cut -d',' -f1 | sort -u | tr '\n' ',' | sed 's/,$//') \
+PERSON_IDS=$(tail -n +2 scripts/evaluator/ground_truth.csv | cut -d',' -f1 | sort -u | tr '\n' ',' | sed 's/,$//') \
 bash scripts/trials4patients.sh
 ```

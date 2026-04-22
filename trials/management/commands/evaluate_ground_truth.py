@@ -1,9 +1,9 @@
 """
-Management command: evaluate_ethalon
+Management command: evaluate_ground_truth
 
-Compare two CSVs in ethalon format — no database, no live matching.
+Compare two CSVs in ground truth format — no database, no live matching.
 
-  --ethalon   ground-truth CSV
+  --ground-truth   ground-truth CSV
   --results   EXACT output CSV (e.g. produced by trials4patients_results.csv)
 
 Both files use the same format:
@@ -13,8 +13,8 @@ TOP_N is inferred automatically as the maximum number of results rows for any
 single patient in the results CSV.  PENALTY_RANK = TOP_N + 1.
 
 Usage:
-    python manage.py evaluate_ethalon \\
-      --ethalon scripts/evaluator/ethalon.csv \\
+    python manage.py evaluate_ground_truth \\
+      --ground-truth scripts/evaluator/ground_truth.csv \\
       --results trials4patients_results.csv \\
       --output  comparison.json
 """
@@ -26,7 +26,7 @@ from django.core.management.base import BaseCommand
 
 
 def _read_csv(path):
-    """Parse ethalon CSV. Returns list of row dicts with normalised keys."""
+    """Parse ground truth CSV. Returns list of row dicts with normalised keys."""
     rows = []
     with open(path, newline='') as f:
         sample = f.read(4096)
@@ -53,7 +53,7 @@ def _read_csv(path):
 
 def _load_results(path):
     """
-    Parse a results CSV (same format as ethalon).  Returns a dict:
+    Parse a results CSV (same format as the ground truth file).  Returns a dict:
         { person_id_str: [ {code, study_id, match_type, goodness_score, rank}, … ] }
 
     Rows are ranked in the order they appear per patient (first row = rank 1).
@@ -77,7 +77,7 @@ def _load_results(path):
 
 
 # ---------------------------------------------------------------------------
-# Comparison (mirrors evaluate_ethalon_live but penalty_rank is a parameter)
+# Comparison (mirrors evaluate_ground_truth_live but penalty_rank is a parameter)
 # ---------------------------------------------------------------------------
 
 def _compare_patient(person_id, expected_rows, actual_results, penalty_rank):
@@ -203,11 +203,11 @@ def _aggregate(patient_results, penalty_rank):
 # ---------------------------------------------------------------------------
 
 class Command(BaseCommand):
-    help = 'Compare two ethalon-format CSVs (ground truth vs EXACT results).'
+    help = 'Compare two ground truth format CSVs (ground truth vs EXACT results).'
 
     def add_arguments(self, parser):
         parser.add_argument(
-            '--ethalon',
+            '--ground-truth',
             required=True,
             help='Ground-truth CSV.',
         )
@@ -224,13 +224,13 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         # ── Read CSVs ─────────────────────────────────────────────────────
-        self.stdout.write(f'Ethalon : {options["ethalon"]}')
+        self.stdout.write(f'Ground truth: {options["ground_truth"]}')
         self.stdout.write(f'Results : {options["results"]}')
 
         try:
-            ethalon_rows = _read_csv(options['ethalon'])
+            ground_truth_rows = _read_csv(options['ground_truth'])
         except Exception as e:
-            self.stderr.write(self.style.ERROR(f'Failed to read ethalon: {e}'))
+            self.stderr.write(self.style.ERROR(f'Failed to read ground_truth: {e}'))
             return
 
         try:
@@ -247,16 +247,16 @@ class Command(BaseCommand):
         penalty_rank = top_n + 1
 
         self.stdout.write(
-            f'  ethalon: {len(ethalon_rows)} rows, '
-            f'{len({r["person_id"] for r in ethalon_rows})} patients\n'
+            f'  ground_truth: {len(ground_truth_rows)} rows, '
+            f'{len({r["person_id"] for r in ground_truth_rows})} patients\n'
             f'  results: {sum(len(v) for v in results_by_patient.values())} rows, '
             f'{len(results_by_patient)} patients  (top_n={top_n})'
         )
 
-        # ── Group ethalon by patient ───────────────────────────────────────
+        # ── Group ground truth by patient ───────────────────────────────────────
         from collections import defaultdict
         expected_by_patient: dict = defaultdict(list)
-        for r in ethalon_rows:
+        for r in ground_truth_rows:
             expected_by_patient[r['person_id']].append(r)
 
         # ── Compare ───────────────────────────────────────────────────────

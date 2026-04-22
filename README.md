@@ -34,11 +34,11 @@ See [docs/trials4patients.md](docs/trials4patients.md) for all options.
 
 ## Evaluating results
 
-To score EXACT results against a ground-truth CSV (ethalon):
+To score EXACT results against a ground-truth CSV:
 
 ```bash
 RESULTS_CSV=results.csv bash scripts/trials4patients.sh
-bash scripts/evaluator/evaluate.sh scripts/evaluator/ethalon.csv results.csv
+bash scripts/evaluator/evaluate.sh scripts/evaluator/ground_truth.csv results.csv
 ```
 
 See [docs/evaluator.md](docs/evaluator.md) for metrics, full workflow, and output options.

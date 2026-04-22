@@ -16,7 +16,7 @@
 #   PERSON_IDS=1,2,3           — specific person IDs to test (default: all)
 #   PATIENT_LIMIT=50           — max number of patients to process (default: all)
 #   SEARCH_LIMIT=5             — top N trials per patient (default: 20)
-#   RESULTS_CSV=results.csv    — also write ethalon-format CSV (for evaluate_ethalon)
+#   RESULTS_CSV=results.csv    — also write ground truth format CSV (for evaluate_ground_truth)
 
 set -e
 
@@ -89,7 +89,7 @@ if [ -n "$PATIENT_LIMIT" ]; then
 fi
 
 if [ -n "$RESULTS_CSV" ]; then
-  SEARCH_ARGS+=(--ethalon-csv "$RESULTS_CSV")
+  SEARCH_ARGS+=(--ground-truth-csv "$RESULTS_CSV")
 fi
 
 python manage.py search_trials_for_patients "${SEARCH_ARGS[@]}"
