@@ -1,7 +1,7 @@
 """
 Management command: fetch_exact_for_patients
 
-Loads all patients from an external patient DB (CTOMOP), runs the EXACT
+Loads all patients from an external patient DB (PROMOP), runs the EXACT
 search API for each one (top-N trials), and caches the full responses to
 disk so they can be analysed offline without re-running the slow search.
 
@@ -14,7 +14,9 @@ Cache layout
 Usage
 -----
     python manage.py fetch_exact_for_patients \\
-      --source-db-url $PATIENT_DATABASE_URL \\
+      # PATIENT_DATABASE_URL is read from the environment. Passing it as
+      # --source-db-url only looks out-of-band: the shell expands it before
+      # exec, putting the password in argv exactly as before (#403).
       --cache-dir ~/.cache/exact/patients \\
       --limit 10
 
@@ -40,6 +42,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from django.core.management.base import BaseCommand, CommandError
+from trials.services.psql_dsn import psql_dsn_and_env
 
 logger = logging.getLogger(__name__)
 
@@ -74,9 +77,10 @@ def _psql_query_rows(db_url, sql):
     """
     import subprocess
     wrapped = f"SELECT row_to_json(t) FROM ({sql}) t"
-    env = {**os.environ, 'PGSSLMODE': 'require'}
+    # The password goes in the environment, never in argv (#403).
+    dsn, env = psql_dsn_and_env(db_url, PGSSLMODE='require')
     result = subprocess.run(
-        ['psql', db_url, '-t', '--no-psqlrc', '-c', wrapped],
+        ['psql', dsn, '-t', '--no-psqlrc', '-c', wrapped],
         capture_output=True, text=True, env=env,
     )
     if result.returncode != 0:
@@ -98,7 +102,7 @@ def _psql_query_rows(db_url, sql):
 
 
 def _fetch_patients(db_url, person_ids=None, limit=None):
-    """Return all patient dicts from CTOMOP via psql subprocess."""
+    """Return all patient dicts from PROMOP via psql subprocess."""
     where = ''
     if person_ids:
         ids_sql = ', '.join(str(int(i)) for i in person_ids)
@@ -121,12 +125,12 @@ def _fetch_patients(db_url, person_ids=None, limit=None):
 
 
 def _clean_row(row: dict) -> dict:
-    """Normalise + clean a CTOMOP row into a JSON-serialisable patient_info dict."""
+    """Normalise + clean a PROMOP row into a JSON-serialisable patient_info dict."""
     from trials.management.commands.search_trials_for_patients import (
-        _normalize_ctomop_row, SKIP_COLUMNS, JSON_FIELDS,
+        _normalize_promop_row, SKIP_COLUMNS, JSON_FIELDS,
     )
 
-    row = _normalize_ctomop_row(dict(row))
+    row = _normalize_promop_row(dict(row))
 
     cleaned = {}
     for col, val in row.items():
@@ -212,7 +216,7 @@ def _fetch_details_parallel(patient_info: dict, trial_ids: list[int],
 # ── management command ──────────────────────────────────────────────────────
 
 class Command(BaseCommand):
-    help = 'Fetch EXACT trial results for all CTOMOP patients and cache to disk.'
+    help = 'Fetch EXACT trial results for all PROMOP patients and cache to disk.'
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -295,7 +299,7 @@ class Command(BaseCommand):
 
         rows = _fetch_patients(db_url, person_ids=person_ids or None,
                                limit=options.get('patient_limit'))
-        self.stdout.write(f'Found {len(rows)} patients in CTOMOP')
+        self.stdout.write(f'Found {len(rows)} patients in PROMOP')
 
         for row in rows:
             person_id = row.get('person_id')

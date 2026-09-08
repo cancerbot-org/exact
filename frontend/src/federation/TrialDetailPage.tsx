@@ -9,6 +9,7 @@
 // SoC) are deliberately out of scope.
 import { useEffect } from "react";
 
+import { safeHref } from "../lib/safeUrl";
 import { Field, FieldTooltip, ScorePill, SUITABILITY_HREF, asText, renderMd } from "./bits";
 import { useTrialDetail } from "./hooks";
 import { injectStyles } from "./injectStyles";
@@ -78,10 +79,35 @@ function formatValue(value: unknown, options?: TrialDetailField["options"]): str
   return labelOf(value, options);
 }
 
+/** Shown in place of a therapy concept the vocab mirror could not resolve to a
+ *  name (e.g. a concept EXACT's projection references but promop's snapshot does
+ *  not ship yet — see promop#390). A raw concept_id is meaningless to a user, so
+ *  we render a hint instead. The criterion is still shown (never dropped). */
+export const UNRESOLVED_CONCEPT_LABEL = "Unknown";
+
+/** Resolve OMOP-mapped therapy `value` concept_ids to their mirror titles (drug
+ *  names). For any concept the server did not resolve, render a placeholder hint
+ *  rather than the raw id — so the criterion is still visible but not shown as a
+ *  meaningless number. Used for the OMOP therapy regimen/component levels, whose
+ *  `value` is concept_ids with no `options` map. */
+export function formatOmopConcepts(
+  value: unknown,
+  concepts: NonNullable<TrialDetailField["omopConcepts"]>,
+): string {
+  const byCode = new Map(concepts.map((c) => [String(c.code), c.title]));
+  const ids = Array.isArray(value) ? value : value == null || value === "" ? [] : [value];
+  const parts = ids
+    .filter((v) => v != null && v !== "")
+    .map((v) => byCode.get(String(v)) ?? UNRESOLVED_CONCEPT_LABEL);
+  return parts.length ? parts.join(", ") : "—";
+}
+
 function EligibilityRow({ field }: { field: TrialDetailField }) {
   const matched = field.matchingType === "matched";
   const notMatched = field.matchingType === "not_matched";
-  const required = formatValue(field.value, field.options);
+  const required = field.omopConcepts?.length
+    ? formatOmopConcepts(field.value, field.omopConcepts)
+    : formatValue(field.value, field.options);
   const yours = formatValue(field.uvalue, field.uoptions ?? field.options);
   const tooltip = FIELD_TOOLTIPS[field.ufield as string] ?? FIELD_TOOLTIPS[field.name];
 
@@ -115,6 +141,40 @@ function EligibilityRow({ field }: { field: TrialDetailField }) {
         ) : null}
       </div>
     </div>
+  );
+}
+
+/**
+ * The registry link, or plain text when the corpus value is not a safe href.
+ *
+ * A separate component so the guard can be rendered and asserted rather than
+ * pattern-matched in the source (#406). An earlier test read this file with
+ * regexes and passed on `href={data.link || ""}` -- it recognised one spelling
+ * of the fix, not the property.
+ *
+ * Gated on the SANITISED value: gating on the raw one would render an `<a>`
+ * with no `href` for a rejected URL, which paints link styling over something
+ * that does nothing.
+ *
+ * `safeHref` rather than the stricter `safeRedirect`: `data.link` is always an
+ * absolute registry URL, so `safeRedirect`'s `^https://` would fit better --
+ * except that it would also drop the legacy `http://clinicaltrials.gov/ct2/...`
+ * links the corpus still carries. The looser check therefore also admits
+ * `mailto:`/`tel:` and relative paths, which this field never holds; a relative
+ * value would resolve against the HOST application's origin, since this is a
+ * federation remote. Not exploitable, but wider than the data warrants.
+ */
+export function NctLink({ link, studyId }: { link?: string | null; studyId?: string | null }) {
+  const href = safeHref(link);
+
+  if (!href) {
+    return <span className="exact-field__value">{studyId}</span>;
+  }
+
+  return (
+    <a className="exact-detail__nct" href={href} target="_blank" rel="noopener noreferrer">
+      {studyId}
+    </a>
   );
 }
 
@@ -186,18 +246,7 @@ export function TrialDetailPage({
               <Field label="Trial Type" value={asText(data.trialType)} />
               <div className="exact-field">
                 <span className="exact-field__label">NCT Number: </span>
-                {data.link ? (
-                  <a
-                    className="exact-detail__nct"
-                    href={data.link}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    {data.studyId}
-                  </a>
-                ) : (
-                  <span className="exact-field__value">{data.studyId}</span>
-                )}
+                <NctLink link={data.link} studyId={data.studyId} />
               </div>
               <Field label="Sponsor" value={asText(data.sponsorName)} />
             </div>

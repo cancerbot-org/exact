@@ -8,7 +8,9 @@ web server required.
 Usage
 -----
     python manage.py search_trials_for_patients \\
-      --source-db-url postgresql://user:pass@host:5432/patients
+      # Reads PATIENT_DATABASE_URL from the environment. Do not pass
+      # --source-db-url with a password in it: the shell expands it before
+      # exec, so the credential lands in this process's argv (#403).
 
     Falls back to PATIENT_DATABASE_URL env var if --source-db-url is not given.
 
@@ -34,18 +36,19 @@ import shutil
 import subprocess
 
 from django.core.management.base import BaseCommand, CommandError
-from trials.services.patient_info.ctomop_adapter import (
+from trials.services.patient_info.promop_adapter import (
     JSON_FIELDS,
     OUTCOME_MAP as _OUTCOME_MAP,
     REFRACTORY_MAP as _REFRACTORY_MAP,
     SKIP_COLUMNS,
-    build_patient_info_from_ctomop_row as _build_patient_info,
-    normalize_ctomop_row as _normalize_ctomop_row,
+    build_patient_info_from_promop_row as _build_patient_info,
+    normalize_promop_row as _normalize_promop_row,
     resolve_code as _resolve_code,
     resolve_code_csv as _resolve_code_csv,
     resolve_therapy_code as _resolve_therapy_code,
 )
 from trials.services.user_to_trial_attr_matcher import UserToTrialAttrMatcher
+from trials.services.psql_dsn import psql_dsn_and_env
 
 
 
@@ -138,7 +141,7 @@ class Command(BaseCommand):
             default='json',
             help='Output format for --output file. '
                  '"ground_truth" writes one row per trial in ground truth CSV format '
-                 '(CTOMOP Patient ID, Trial, Eligible/Potential, Suitability Score). '
+                 '(PROMOP Patient ID, Trial, Eligible/Potential, Suitability Score). '
                  'Default: json',
         )
         parser.add_argument(
@@ -146,7 +149,7 @@ class Command(BaseCommand):
             type=str,
             default='',
             help='Also write results in ground truth CSV format to this path '
-                 '(CTOMOP Patient ID, Trial, Eligible/Potential, Suitability Score). '
+                 '(PROMOP Patient ID, Trial, Eligible/Potential, Suitability Score). '
                  'Can be combined with --output / --format.',
         )
         parser.add_argument(
@@ -376,11 +379,12 @@ class Command(BaseCommand):
             query += f' LIMIT {int(options["patient_limit"])}'
 
         wrapped = f'SELECT row_to_json(t) FROM ({query}) t'
-        env = {**os.environ, 'PGSSLMODE': 'require'}
+        # The password goes in the environment, never in argv (#403).
+        dsn, env = psql_dsn_and_env(source_db_url, PGSSLMODE='require')
 
         try:
             result = subprocess.run(
-                ['psql', source_db_url, '-t', '--no-psqlrc', '-c', wrapped],
+                ['psql', dsn, '-t', '--no-psqlrc', '-c', wrapped],
                 capture_output=True,
                 text=True,
                 env=env,
@@ -577,7 +581,7 @@ class Command(BaseCommand):
             with open(path, 'w', newline='') as f:
                 writer = csv.writer(f)
                 writer.writerow([
-                    'CTOMOP Patient ID', 'Trial',
+                    'PROMOP Patient ID', 'Trial',
                     'Eligible/Potential', 'Suitability Score',
                 ])
                 for r in results:
