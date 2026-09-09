@@ -128,6 +128,7 @@ trial-search request.
 | `region` | string | Filter by region |
 | `postalCode` | string | Override postal code for distance calculation |
 | `studyId` | string | Filter by study ID (e.g. NCT number) |
+| `phase` | string | Keep trials at this phase or later (`EARLY_PHASE1` … `PHASE4`); trials with no ingested phase are excluded |
 | `lastUpdate` | date | Filter trials updated after this date |
 | `firstEnrolment` | date | Filter trials with first enrolment after this date |
 
@@ -137,16 +138,17 @@ trial-search request.
 
 ### `GET /trials/`
 
-List trials ordered by match score descending. For explicit sorting or the
-`favorites` filter, use [`GET /trials/search/`](#get-trialssearch) instead.
+List trials ordered by `-match_score, -posted_date, id`. For explicit
+sorting or the per-tab counts, use [`GET /trials/search/`](#get-trialssearch)
+instead — `sort` is read only there.
 
-**Patient context**: optional — include `"patientInfo": {...}` in the request body.
+**Patient context**: optional — include `"patient_info": {...}` in the request body (snake_case; no camelCase parser is configured, so `patientInfo` is silently ignored).
 
 **Query params:**
 
 | Param | Values | Description |
 |---|---|---|
-| `type` | `all`, `eligible`, `potential`, `not_eligible` | Filter by match status |
+| `type` | `all` | Only `all` changes anything here: it switches to the admin corpus, which skips the eligibility filter. `eligible` / `potential` are **not** applied by this endpoint — use `GET /trials/search/`. `favorites`, `my_trials` and `not_eligible` return 400 |
 | `search` | string | Full-text search on title fields |
 | `explain` | `true` | Include per-criterion match breakdown in each trial (see `matchReasons` below) |
 
@@ -223,19 +225,60 @@ is `null`.
 ### `GET /trials/search/`
 
 Extended search endpoint — use this instead of `GET /trials/` when you need
-explicit sorting or access to the `favorites` filter type. Accepts the same
-patient context and study-preference query params as `GET /trials/`, plus:
+explicit sorting or the per-tab counts. Accepts the same patient context and
+study-preference query params as `GET /trials/`, plus:
 
-**Patient context**: optional — include `"patientInfo": {...}` in the request body.
+**Patient context**: optional — include `"patient_info": {...}` in the request body (snake_case; no camelCase parser is configured, so `patientInfo` is silently ignored).
 
 **Query params:**
 
 | Param | Values | Default | Description |
 |---|---|---|---|
-| `type` | `all`, `eligible`, `potential`, `not_eligible`, `favorites` | `all` | Match-status filter |
+| `type` | `all`, `eligible`, `potential` | *(none)* | Match-status filter. The default is **no value**, which is not the same as `all` — see the note below. `eligible_and_potential` is accepted for CB compatibility but is a no-op identical to omitting the parameter. `favorites`, `my_trials` and `not_eligible` return 400 |
 | `sort` | `goodnessScore`, `matchScore`, `patientBurdenScore`, `distance`, `status`, `phase`, `updated`, `enrollment` | `goodnessScore` | Sort order |
 | `view` | template name | — | Override the attribute-detail template |
 | `search` | string | — | Full-text search |
+| `phase` | `EARLY_PHASE1`, `PHASE1`, `PHASE2`, `PHASE3`, `PHASE4` | — | Keep trials at that phase **or later**. Trials with no ingested phase are excluded by any value |
+
+**`type=all` takes a different branch.** Omitting `type` runs the eligibility
+filter and the full study-preference set. `all` routes through the admin
+branch instead, which skips eligibility *and* the `phase`, `recruitmentStatus`,
+`sponsor`, `searchTreatment`, `country`/`region` and date filters — while being
+the only branch that applies `studyId`. Filters silently do nothing on that
+path rather than erroring (issue #424).
+
+**Response extra key — `tabCounts`:**
+
+```json
+{ "results": [...], "itemsTotalCount": 42, "tabCounts": { "eligible": 9, "potential": 33 } }
+```
+
+`eligible` and `potential` partition the whole matched corpus — deliberately
+not the rows this response lists, so that the Eligible badge does not read 0
+while the user is on the Potential tab. They are taken after every other
+filter, including `search`, which DRF applies outside the matcher.
+
+**The key is absent** when a count would assert something nobody computed:
+when the request carries no patient context (nothing has been judged), and
+under `?type=all` (the admin branch skips the eligibility filter, so the rows
+are real but no per-row verdict exists). Treat a missing `tabCounts` as "no
+counts available", not as zero.
+
+---
+
+### `POST /trials/search/match/`
+
+`GET /trials/search/` with the patient payload in the body, for callers that
+cannot send a GET body (the Fetch spec forbids it and axios's XHR adapter
+drops it). Same query params, same response shape, including `tabCounts`.
+
+```
+POST /trials/search/match/?sort=distance
+{ "patient_info": { "disease": "multiple myeloma", ... } }
+```
+
+Its sibling `POST /trials/match/` routes to `GET /trials/` instead, and so
+does **not** read `sort`.
 
 ---
 
@@ -243,7 +286,7 @@ patient context and study-preference query params as `GET /trials/`, plus:
 
 Returns the count of matched trials without fetching full records.
 
-**Patient context**: optional — include `"patientInfo": {...}` in the request body.
+**Patient context**: optional — include `"patient_info": {...}` in the request body (snake_case; no camelCase parser is configured, so `patientInfo` is silently ignored).
 
 **Response:**
 ```json
@@ -257,7 +300,7 @@ Returns the count of matched trials without fetching full records.
 Retrieve full trial details including all eligibility attributes grouped for
 display, with per-attribute patient match status.
 
-**Patient context**: optional — include `"patientInfo": {...}` in the request body.
+**Patient context**: optional — include `"patient_info": {...}` in the request body (snake_case; no camelCase parser is configured, so `patientInfo` is silently ignored).
 
 **Response:** Full trial object including `trialEligibilityAttributes` grouped
 by category, each with the trial's value, the patient's current value, and the
@@ -272,7 +315,7 @@ match status (`matched`, `unknown`, or `not_matched`).
 Returns a compact graph-structured response optimised for visual dependency
 views.
 
-**Patient context**: optional — include `"patientInfo": {...}` in the request body.
+**Patient context**: optional — include `"patient_info": {...}` in the request body (snake_case; no camelCase parser is configured, so `patientInfo` is silently ignored).
 
 **Query params:**
 
@@ -318,6 +361,12 @@ Returns all dropdown option lists used by patient-intake forms.
 |---|---|
 | `disease` | If provided, also returns `trialTypes` scoped to this disease |
 
+Two status lists live here and they are not interchangeable. `recruitmentStatuses`
+is the trial's recruitment state, and its values are what `?recruitmentStatus=`
+accepts on the trial endpoints. `statuses` is the patient-invitation enum
+("Looking for trial", "Waiting for patient acceptance") and has nothing to do
+with trial search.
+
 **Response** (partial example):
 ```json
 {
@@ -339,7 +388,12 @@ Returns all dropdown option lists used by patient-intake forms.
   "ethnicity": [ ... ],
   "therapyTypesAll": [ ... ],
   "therapyComponentsAll": [ ... ],
-  "trialTypes": [ ... ]
+  "trialTypes": [ ... ],
+  "recruitmentStatuses": { "options": [
+    { "value": "", "label": "ALL" },
+    { "value": "RECRUITING", "label": "Recruiting" },
+    { "value": "RECRUITING_AND_NOT_YET_RECRUITING", "label": "Recruiting & Not Yet Recruiting" }
+  ] }
 }
 ```
 

@@ -102,6 +102,54 @@ class TrialsViewSet(viewsets.ReadOnlyModelViewSet):
     def _resolve_study_preferences(self) -> StudyPreferences:
         return study_preferences_from_query_params(self.request.query_params)
 
+    def _reject_user_scoped_search_type(self, search_type):
+        """`?type=favorites` / `?type=my_trials` have no meaning here yet.
+
+        Both name a per-user relation to a trial, and EXACT holds no per-user
+        state: the search types were inherited from CB, where `add_favorite()`
+        / `add_for_participation()` annotate the queryset from `UserTrial`.
+        Neither annotation exists here, so what the two types did instead was:
+
+        - `favorites`: `queryset.filter(favorite=True)` against a field the
+          Trial model does not have — a FieldError surfacing as a 500.
+        - `my_trials`: no narrowing at all. `filtered_trials` routes both
+          through `filter_for_admin`, which skips the eligibility filter, so
+          the response was the whole corpus presented as the patient's
+          registered trials — wrong in a way nothing on screen reveals.
+
+        Fail closed until the real path lands: the favorites list will be
+        supplied by PROMOP and pushed down as a bounded `trial_ids` filter
+        (see docs/federated-ui-parity-plan.md, phase 2). A 400 naming the
+        reason beats either a 500 or a plausible wrong answer.
+
+        `not_eligible` goes too, for the same reason wearing different
+        clothes: it matches no branch in `add_potential_attrs_count`, so it
+        fell through to no narrowing at all and returned the eligible +
+        potential set — the exact inverse of its name. It was in the API
+        docs, so a client could be asking for it today and rendering
+        "trials you do not qualify for" over trials the patient does.
+
+        `all` is deliberately left alone. It reaches the same admin branch
+        and returns the same unnarrowed corpus, but that corpus is what it
+        names — a caller asking for every trial gets every trial. The
+        others promise a subset they cannot deliver.
+        """
+        if search_type in ('favorites', 'my_trials'):
+            raise serializers.ValidationError({
+                'type': [
+                    f"'{search_type}' is not supported: EXACT stores no per-user "
+                    f"trial state. Send the trial ids to filter by instead."
+                ]
+            })
+        if search_type == 'not_eligible':
+            raise serializers.ValidationError({
+                'type': [
+                    "'not_eligible' is not supported: the queryset has no such "
+                    "narrowing, and the value used to return the eligible and "
+                    "potential trials instead — the inverse of what it names."
+                ]
+            })
+
     def get_queryset(self, patient_info=None):
         if patient_info is None:
             patient_info = self._resolve_patient_info()
@@ -109,6 +157,13 @@ class TrialsViewSet(viewsets.ReadOnlyModelViewSet):
         queryset = Trial.objects.all()
         study_prefs = self._resolve_study_preferences()
         search_type = self.request.query_params.get('type', None)
+        # Only where `type` is actually consumed. It reaches `filtered_trials`
+        # from `list` and `count` as well as `search`, so all three are
+        # covered — but `retrieve` ignores the parameter entirely, and
+        # rejecting it there would turn a working detail page into a 400 for
+        # any UI that carries the tab it came from in the query string.
+        if self.action in ('list', 'count', 'search'):
+            self._reject_user_scoped_search_type(search_type)
 
         if self.action in ['list', 'count', 'search']:
             queryset, _ = queryset.filtered_trials(
@@ -154,10 +209,18 @@ class TrialsViewSet(viewsets.ReadOnlyModelViewSet):
             queryset = queryset.order_by('-match_score', '-posted_date', 'id')
 
         if self.action == 'search':
-            if search_type == 'favorites':
-                queryset = queryset.filter(favorite=True)
-
             counts = self._trials_counts(queryset, patient_info)
+            # Annotated but NOT narrowed by `type`, kept for the tab counts.
+            # `with_potential_attrs_count` both annotates and applies the
+            # eligible/potential filter, so counting the response's own
+            # queryset would count an already-narrowed set: on the Potential
+            # tab the Eligible badge would read 0. The tab bar has to be
+            # told about the whole matched corpus, not the tab it is on.
+            self._tab_counts_source = queryset.with_potential_attrs_count(
+                patient_info, None, counts,
+            )
+            self._tab_counts_patient_info = patient_info
+            self._tab_counts_search_type = search_type
             queryset = queryset.with_potential_attrs_count(patient_info, search_type, counts)
 
             sort_by = self.request.query_params.get('sort', 'goodnessScore')
@@ -301,9 +364,76 @@ class TrialsViewSet(viewsets.ReadOnlyModelViewSet):
         page = self.paginate_queryset(queryset)
         if page is not None:
             serializer = self.get_serializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
+            tab_counts = self._tab_counts()
+            extra_keys = {} if tab_counts is None else {'tabCounts': tab_counts}
+            return self.get_paginated_response(serializer.data, extra_keys=extra_keys)
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
+
+    def _tab_counts(self) -> Optional[dict]:
+        """Totals for the tab bar, or None when they would be a lie.
+
+        Deliberately computed here rather than at a `/trials/counts/`
+        endpoint of its own. Counts are only meaningful under a patient
+        context, and the only way to send one is a POST body — the
+        `?person_id=` path is gated off outside DEBUG. A GET-only counts
+        endpoint would answer every federated caller with
+        `patient_info=None`, where `potential_attrs_count` collapses to
+        `num_nonnulls(NULL)`: `potential` structurally zero and every row
+        in the corpus labelled eligible, with nothing in the response to
+        say so.
+
+        Two cases return None instead of a plausible-looking number, for
+        that same reason:
+
+        - **No patient context.** Nothing has been judged, so calling the
+          corpus `eligible` would assert a clinical verdict nobody made.
+          `GET /trials/search/` can be called this way, so moving the
+          counts onto it does not by itself fix what killed the endpoint.
+        - **`?type=all`.** That routes through `filter_for_admin`, which
+          skips the eligibility filter entirely; the rows are the corpus
+          the caller asked for, but a per-row verdict was never computed.
+          Listing them is honest, counting them as eligible is not.
+
+        Otherwise the source is the annotated-but-not-type-narrowed
+        queryset (`get_queryset`), run through the same `filter_queryset`
+        the listed rows went through — so `?search=`, which DRF applies
+        outside the matcher, lands on both — and the counts describe the
+        whole matched corpus regardless of which tab is active.
+        """
+        source = getattr(self, '_tab_counts_source', None)
+        if source is None:
+            return None
+        if getattr(self, '_tab_counts_patient_info', None) is None:
+            return None
+        if getattr(self, '_tab_counts_search_type', None) == 'all':
+            return None
+
+        source = self.filter_queryset(source)
+        # `potential_attrs_count` is `num_nonnulls(...)`, never NULL, so the
+        # two buckets partition the source exactly and the second is
+        # arithmetic rather than a third pass over the corpus.
+        total = source.count()
+        eligible = source.filter(potential_attrs_count=0).count()
+        return {'eligible': eligible, 'potential': total - eligible}
+
+    @action(methods=['post'], detail=False, url_path='search/match',
+            url_name='search-match')
+    def search_match(self, request, *args, **kwargs):
+        """POST alias for `search`, carrying `patient_info` in the body.
+
+        The existing `match` alias routes to `list`, whose ordering is fixed
+        at `-match_score, -posted_date, id`; only `search` reads `?sort=` and
+        carries the tab counts. So a host holding an inline `patient_info` payload —
+        the federated remote's default path, since GET-with-body is forbidden
+        by the Fetch spec and dropped by axios's XHR adapter — could reach
+        neither sorting nor counts at all.
+
+        Binds `self.action = 'search'` so every `self.action == 'search'`
+        branch in `get_queryset` fires, exactly as `match` does for `list`.
+        """
+        self.action = 'search'
+        return self.search(request, *args, **kwargs)
 
 
 # ---------------------------------------------------------------------------
