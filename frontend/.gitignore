@@ -6,3 +6,10 @@ dist/
 .vite/
 .env.local
 .env.*.local
+
+# Emitted by `tsc -b` beside the vite configs it typechecks. The build
+# output that ships is `dist/`; these are incidental.
+vite.config.js
+vite.config.d.ts
+vite.remote.config.js
+vite.remote.config.d.ts

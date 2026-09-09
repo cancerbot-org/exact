@@ -3,10 +3,8 @@
 // (e.g. mounting two filtered views with the same patient doesn't
 // re-request).
 import {
-  useInfiniteQuery,
+  keepPreviousData,
   useQuery,
-  type InfiniteData,
-  type UseInfiniteQueryResult,
   type UseQueryResult,
 } from "@tanstack/react-query";
 import type { AxiosInstance } from "axios";
@@ -24,6 +22,10 @@ interface UseTrialsArgs {
   patientInfo?: PatientInfo | null;
   personId?: string | number;
   filters?: FilterState;
+  /** 1-indexed page. */
+  page?: number;
+  /** Rows per page. */
+  limit?: number;
   /** Skip the query until the host has a patient context. Without
    *  patient context the response would be a public/unscoped trial
    *  list — usually not what a TrialMatches mount wants. */
@@ -35,15 +37,26 @@ export function useTrials({
   patientInfo,
   personId,
   filters,
+  page = 1,
+  limit,
   enabled = true,
-}: UseTrialsArgs): UseInfiniteQueryResult<InfiniteData<TrialsResponse>> {
-  return useInfiniteQuery({
-    queryKey: ["exact-trials", personId ?? null, patientInfo ?? null, filters ?? null],
-    queryFn: ({ pageParam }) =>
-      fetchTrials({ apiClient, patientInfo, personId, filters, page: pageParam }),
-    initialPageParam: 1,
-    getNextPageParam: (lastPage, _allPages, lastPageParam) =>
-      lastPage.next != null ? (lastPageParam as number) + 1 : undefined,
+}: UseTrialsArgs): UseQueryResult<TrialsResponse> {
+  return useQuery({
+    queryKey: [
+      "exact-trials",
+      personId ?? null,
+      patientInfo ?? null,
+      filters ?? null,
+      page,
+      limit ?? null,
+    ],
+    queryFn: () =>
+      fetchTrials({ apiClient, patientInfo, personId, filters, page, limit }),
+    // Paged, not infinite: CB paginates by number and so does this now, and
+    // an infinite list cannot show per-tab totals or jump to a page. Previous
+    // data is kept across page/filter changes so the list does not blank out
+    // between requests — CB does the same (`keepPreviousData` in useTrials).
+    placeholderData: keepPreviousData,
     enabled: enabled && (patientInfo != null || personId != null),
     staleTime: 30_000,
   });

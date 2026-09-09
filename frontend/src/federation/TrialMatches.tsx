@@ -20,23 +20,20 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { FilterBar } from "./FilterBar";
 import { TrialCard } from "./TrialCard";
 import { TrialDetailPage } from "./TrialDetailPage";
-import { groupByMatchingType } from "./grouping";
+import { Pagination } from "./Pagination";
+import { SortControl } from "./SortControl";
+import { Tabs } from "./Tabs";
+import {
+  DEFAULT_SORT,
+  PAGE_SIZE,
+  TABS,
+  clampPage,
+  totalPages,
+  type TabValue,
+} from "./listChrome";
 import { useTrials } from "./hooks";
 import { injectStyles } from "./injectStyles";
-import type { FilterState, MatchingType, TrialMatch, TrialMatchesProps } from "./types";
-
-// `not_eligible` is included for forward-compat with a future call that
-// surfaces ineligible matches (e.g. an opt-in "show why these don't fit"
-// path). Today the server-side `TrialSerializer.to_representation`
-// only ever emits `'eligible' | 'potential'`, so the bucket is
-// rendered only when non-empty — empty buckets are hidden below.
-const GROUP_ORDER: MatchingType[] = ["eligible", "potential", "not_eligible"];
-
-const GROUP_LABELS: Record<MatchingType, string> = {
-  eligible: "Eligible",
-  potential: "Potential",
-  not_eligible: "Not eligible",
-};
+import type { FilterState, TrialMatch, TrialMatchesProps } from "./types";
 
 function TrialMatchesInner({
   apiClient,
@@ -51,6 +48,9 @@ function TrialMatchesInner({
 
   const [filters, setFilters] = useState<FilterState>(initialFilters ?? {});
   const [selectedTrial, setSelectedTrial] = useState<TrialMatch | null>(null);
+  const [activeTab, setActiveTab] = useState<TabValue>("eligible_and_potential");
+  const [sort, setSort] = useState<string>(initialFilters?.sort ?? DEFAULT_SORT);
+  const [page, setPage] = useState(1);
 
   // Reset detail view when patient context changes so we don't keep a
   // stale trial open from a previous patient. We key on a stable derived
@@ -64,6 +64,7 @@ function TrialMatchesInner({
   );
   useEffect(() => {
     setSelectedTrial(null);
+    setPage(1);
   }, [personId, patientInfoKey]);
 
   // Auto-derive `country` from the patient profile. The country filter
@@ -88,24 +89,62 @@ function TrialMatchesInner({
   const debouncedTreatment = useDebounced(filters.searchTreatment, 400);
   const debouncedDistance = useDebounced(filters.distance, 400);
   const debouncedDistanceUnits = useDebounced(filters.distanceUnits, 400);
+  const activeTabDef = TABS.find((t) => t.value === activeTab) ?? TABS[0];
   const queryFilters = useMemo(
-    () => ({ ...filters, searchTitle: debouncedTitle, searchTreatment: debouncedTreatment, distance: debouncedDistance, distanceUnits: debouncedDistanceUnits }),
-    [filters, debouncedTitle, debouncedTreatment, debouncedDistance, debouncedDistanceUnits],
+    () => ({
+      ...filters,
+      searchTitle: debouncedTitle,
+      searchTreatment: debouncedTreatment,
+      distance: debouncedDistance,
+      distanceUnits: debouncedDistanceUnits,
+      type: activeTabDef.param,
+      sort: sort as FilterState["sort"],
+    }),
+    [
+      filters,
+      debouncedTitle,
+      debouncedTreatment,
+      debouncedDistance,
+      debouncedDistanceUnits,
+      activeTabDef.param,
+      sort,
+    ],
   );
 
-  const query = useTrials({ apiClient, patientInfo, personId, filters: queryFilters });
+  const query = useTrials({
+    apiClient,
+    patientInfo,
+    personId,
+    filters: queryFilters,
+    page,
+    limit: PAGE_SIZE,
+  });
 
-  const allTrials = useMemo(
-    () => query.data?.pages.flatMap((p) => p.results) ?? [],
-    [query.data],
-  );
+  const trials = query.data?.results ?? [];
+  const totalCount = query.data?.itemsTotalCount ?? null;
+  const tabCounts = query.data?.tabCounts;
+  const pageCount = totalPages(totalCount ?? 0);
 
-  const totalCount = query.data?.pages[0]?.itemsTotalCount ?? null;
+  // A filter or tab change can shrink the result set under the current page.
+  // Snap back rather than showing an empty page with no way forward.
+  useEffect(() => {
+    if (pageCount > 0 && page > pageCount) setPage(clampPage(page, pageCount));
+  }, [page, pageCount]);
 
-  const grouped = useMemo(
-    () => groupByMatchingType(allTrials),
-    [allTrials],
-  );
+  const handleTabChange = (next: TabValue) => {
+    setActiveTab(next);
+    setPage(1);
+  };
+
+  const handleSortChange = (next: string) => {
+    setSort(next);
+    setPage(1);
+  };
+
+  const handleFiltersChange = (next: FilterState) => {
+    setFilters(next);
+    setPage(1);
+  };
 
   const diseaseCode = useMemo(() => {
     const d = (patientInfo as Record<string, unknown> | null | undefined)?.["disease"];
@@ -148,11 +187,24 @@ function TrialMatchesInner({
   }
 
   return (
-    <div className="exact-root" style={{ padding: "1rem" }}>
+    <div className="exact-root exact-list" style={{ padding: "1rem" }}>
+      <h1 className="exact-list__title">Your Trials</h1>
+
+      <Tabs
+        active={activeTab}
+        onChange={handleTabChange}
+        counts={tabCounts}
+        activeTabTotal={totalCount}
+      />
+
+      <div className="exact-list__controls">
+        <SortControl value={sort} onChange={handleSortChange} />
+      </div>
+
       <FilterBar
         apiClient={apiClient}
         filters={filters}
-        onChange={setFilters}
+        onChange={handleFiltersChange}
         diseaseCode={diseaseCode}
       />
 
@@ -166,29 +218,23 @@ function TrialMatchesInner({
         </p>
       ) : null}
 
-      {GROUP_ORDER.map((group) => {
-        const trials = grouped[group];
-        if (!trials.length) return null;
-        return (
-          <section key={group} style={{ marginBottom: "1.5rem" }}>
-            <h3
-              style={{
-                fontSize: "0.875rem",
-                fontWeight: 600,
-                color: "var(--exact-color-text-muted)",
-                margin: "0 0 0.5rem",
-              }}
-            >
-              {GROUP_LABELS[group]} ({trials.length})
-            </h3>
-            <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-              {trials.map((t) => (
-                <TrialCard key={t.trialId} trial={t} onSelect={handleSelect} />
-              ))}
-            </div>
-          </section>
-        );
-      })}
+      {/* Kept mounted while a page or filter change is in flight, because
+          `keepPreviousData` leaves the previous rows on screen: without a
+          signal the list looks stale-but-current. CB shows the same
+          floating "Updating…" pill. */}
+      {query.isFetching && !query.isLoading ? (
+        <div className="exact-list__updating" role="status">
+          Updating…
+        </div>
+      ) : null}
+
+      <div
+        className={`exact-list__rows${query.isFetching ? " is-fetching" : ""}`}
+      >
+        {trials.map((t) => (
+          <TrialCard key={t.trialId} trial={t} onSelect={handleSelect} />
+        ))}
+      </div>
 
       {!query.isLoading && patientInfo == null && personId == null ? (
         <p style={{ color: "var(--exact-color-text-muted)" }}>
@@ -199,33 +245,15 @@ function TrialMatchesInner({
 
       {!query.isLoading &&
       (patientInfo != null || personId != null) &&
-      allTrials.length === 0 ? (
-        <p style={{ color: "var(--exact-color-text-muted)" }}>
-          No trials matched the current filters.
-        </p>
+      trials.length === 0 ? (
+        <p style={{ color: "var(--exact-color-text-muted)" }}>No trials found</p>
       ) : null}
 
-      {query.hasNextPage ? (
-        <div style={{ textAlign: "center", marginTop: "1rem" }}>
-          <button
-            onClick={() => query.fetchNextPage()}
-            disabled={query.isFetchingNextPage}
-            style={{
-              padding: "0.5rem 1.25rem",
-              borderRadius: "0.375rem",
-              border: "1px solid var(--exact-color-border, #d1d5db)",
-              background: "var(--exact-color-surface, #fff)",
-              color: "var(--exact-color-text, #111827)",
-              cursor: query.isFetchingNextPage ? "wait" : "pointer",
-              fontSize: "0.875rem",
-            }}
-          >
-            {query.isFetchingNextPage
-              ? "Loading…"
-              : `Load more (${allTrials.length} / ${totalCount ?? "…"})`}
-          </button>
-        </div>
-      ) : null}
+      <Pagination
+        page={page}
+        pageCount={pageCount}
+        onChange={setPage}
+      />
     </div>
   );
 }
