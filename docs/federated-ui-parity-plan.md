@@ -27,7 +27,7 @@ What diverges between CancerBot `ui.v2` and the federated EXACT remote — in la
 
 ## 2. Baseline — what the remote does today
 
-About 1.6k lines in `frontend/src/federation/`: `TrialMatches` (list, Eligible/Potential groups, "Load more"), `TrialCard` and `TrialDetailPage` — both already copied from CB's layout, `FilterBar` (5 controls), `bits.tsx` (ScorePill/Field with CB's 80/60 thresholds), `exact.css` (472 lines, CB tokens), static field tooltips, plus `widget.tsx` on branch `2omop-federated-UI` — an isolated React 19 mount for a React 18 host.
+About 2.8k lines in `frontend/src/federation/` (2,569 excluding tests; `tooltips.ts` is 653 of them and `exact.css` 472): `TrialMatches` (list, Eligible/Potential groups, "Load more"), `TrialCard` and `TrialDetailPage` — both already copied from CB's layout, `FilterBar` (5 controls), `bits.tsx` (ScorePill/Field with CB's 80/60 thresholds), `exact.css` (472 lines, CB tokens), static field tooltips, plus `widget.tsx` on branch `2omop-federated-UI` — an isolated React 19 mount for a React 18 host.
 
 Data: `POST /trials/match/` with an inline payload, or `GET /trials/?person_id=`; details via `POST /trials/{id}/match/`. Filters live entirely in React state; nothing is persisted.
 
@@ -39,9 +39,11 @@ Data: `POST /trials/match/` with an inline payload, or `GET /trials/?person_id=`
 |---|---|---|---|
 | "Your Trials" heading + Eligible / All / Registered / Favorites tabs with server-side counts | none; Eligible/Potential sections instead | **missing** | CB tabs with a flat list inside each; counts from a new `/trials/counts/` |
 | Eligible/Potential grouping | computed over the *loaded page*, not the whole result set | **bug** | Drop client-side grouping; move to server counts |
-| Sort: Suitability / Matching / Distance | no UI; `filters.sort` exists in the types but **does nothing** — `/trials/match/` binds to `list`, where ordering is hard-coded to `-match_score` | **bug** | `TrialsSortControl` + a POST alias for `search` |
-| Filter panel: 12 fields, Trial-purpose multiselect, Reset, "Filters (N)" badge, debounce + write queue | 5 inline controls (title, recruitment, trial type, distance, validatedOnly), no reset, no badge | **partial** | Port the panel onto `.exact-filters`; missing: purpose, sponsor, phase, register, country, lastUpdate, studyType, treatment |
+| Sort: Suitability / Matching / Distance | no UI; `filters.sort` exists in the types but **does nothing** — `/trials/match/` binds to `list`, whose ordering is fixed at `order_by('-match_score', '-posted_date', 'id')` | **bug** | `TrialsSortControl` + a POST alias for `search` |
+| Filter panel: 12 fields, Trial-purpose multiselect, Reset, "Filters (N)" badge, debounce + write queue | 5 inline controls (title, recruitment, trial type, distance, validatedOnly), no reset, no badge | **partial** | Port the panel onto `.exact-filters`; missing: purpose, treatment, sponsor, phase, register, lastUpdate, and a country control |
 | Numbered pagination, 10 per page, `?page=` in the URL, scroll-to-top | "Load more", 20 per page | **missing** | CB pagination; URL state via an optional host routing adapter |
+> **On the country filter.** CB has a country dropdown; the remote deliberately does not — `TrialMatches` derives `filters.country` from `patientInfo.country` so the list scopes to the patient's geography without a click (see the comment in `FilterBar.tsx`). Adding the control is therefore a behaviour change toward cross-border search, not gap-filling, and wants a deliberate product call.
+
 | List / Map toggle + `TrialsMap` (Google Maps, pins, sticky, expand) | none | **missing** | Phase 3. Data is already there: `closestLocationGeoPoint` in the serializer |
 | Export CSV (`/trials/export/`) | none | **missing** | Port the action into EXACT, add the button |
 | Explore Trials → Knowledge Graph | none | **missing** | Backend **already exists**: `/trials-graph/graph/`. UI only |
@@ -74,10 +76,10 @@ Data: `POST /trials/match/` with an inline payload, or `GET /trials/?person_id=`
 | Gap | Where | Status | Detail |
 |---|---|---|---|
 | `?phase=` is ignored | EXACT `services/study_preferences.py` | **bug** | `StudyPreferences` has a `phase` field and the queryset filters on it (`by_phase`), but `study_preferences_from_query_params()` never populates it. One line. |
-| `?type=favorites` crashes | EXACT `trials_views.py:191` | **bug** | `queryset.filter(favorite=True)` — EXACT's `Trial` model has no `favorite` field (a leftover from CB, where it is annotated). FieldError → 500. |
-| No POST alias for `search` | EXACT | **missing** | `match` (→ list) and `match_detail` (→ retrieve) exist. The inline-payload path can reach neither sorting nor tab counts. Needs `POST /trials/search/match/` bound to `search`. |
+| `?type=favorites` crashes | EXACT `trials_views.py:158` | **bug** | `queryset.filter(favorite=True)` — EXACT's `Trial` model has no `favorite` field (a leftover from CB, where it is annotated). FieldError → 500. |
+| No POST alias for `search` | EXACT | **missing** | `match` (→ list) and `match_detail` (→ retrieve) exist. Neither sorting nor tab counts is reachable from the inline-payload path — nor from the `?person_id=` GET path, which also targets `list`. Needs `POST /trials/search/match/` bound to `search`. |
 | No filter by id list | EXACT | **missing** | `trial_ids` in the body of the `match` actions, with a hard cap (≤500) — this is what implements the Favorites tab. |
-| No `/trials/counts/` | EXACT | **missing** | CB returns tab counts in one request; otherwise the remote issues four `limit=1` requests. |
+| No `/trials/counts/` | EXACT | **missing** | CB returns tab counts in one request; otherwise the remote issues four `limit=1` requests. Near-collision worth naming: `/trials/count/` (singular) already exists and returns one total for the current filters. CB carries the same pair, so the plan keeps both rather than overloading one. |
 | No `/trials/export/` | EXACT | **missing** | Port CB's action (streaming CSV), without persisted preferences. |
 | `recruitmentStatus` absent from form-settings | EXACT | **partial** | The `statuses` key is the invitation enum, not the recruitment state. The remote already hard-codes the list; better to add a real key to `all_options()`. |
 | `distanceUnits` drift | EXACT ↔ CB | **partial** | CB sends `kilometers`; EXACT only compares against `miles` (anything else means km) — so filtering works, but the serializer echoes "743 kilometers" back into the UI. The remote should send `km` / `miles`. |
