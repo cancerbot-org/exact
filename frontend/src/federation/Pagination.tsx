@@ -10,7 +10,7 @@ interface Props {
 }
 
 export function Pagination({ page, pageCount, onChange }: Props) {
-  // One page is not a pagination. CB hides the row on `totalPages > 1`.
+  // One page is not a pagination; CB hides the row the same way.
   if (pageCount <= 1) return null;
 
   const atStart = page <= 1;
@@ -26,6 +26,13 @@ export function Pagination({ page, pageCount, onChange }: Props) {
       >
         ← Previous
       </button>
+
+      {/* The numbers are hidden on a narrow viewport, where they would wrap
+          into several rows. Without this the reader would be left with two
+          arrows and no idea where in the list they are. */}
+      <span className="exact-pagination__position">
+        Page {page} of {pageCount}
+      </span>
 
       <div className="exact-pagination__pages">
         {getPageNumbers(page, pageCount).map((entry, index) =>

@@ -16,8 +16,13 @@ interface Props {
 }
 
 export function Tabs({ active, onChange, counts, activeTabTotal }: Props) {
+  // Plain buttons in a <nav>, not role="tablist"/"tab". The ARIA tab pattern
+  // promises arrow-key navigation, a roving tabindex, and an associated
+  // tabpanel; announcing "tab, 1 of 3" and then not moving on ← / → is worse
+  // for a screen-reader user than not claiming the pattern at all. These are
+  // filters over one list, and `aria-current` says which one is applied.
   return (
-    <div className="exact-tabs" role="tablist">
+    <nav className="exact-tabs" aria-label="Filter trials by match status">
       {TABS.map((tab) => {
         const isActive = tab.value === active;
         const count = tabCount(
@@ -32,8 +37,7 @@ export function Tabs({ active, onChange, counts, activeTabTotal }: Props) {
           <button
             key={tab.value}
             type="button"
-            role="tab"
-            aria-selected={isActive}
+            aria-current={isActive || undefined}
             className={`exact-tab${isActive ? " is-active" : ""}`}
             onClick={() => onChange(tab.value)}
           >
@@ -44,6 +48,6 @@ export function Tabs({ active, onChange, counts, activeTabTotal }: Props) {
           </button>
         );
       })}
-    </div>
+    </nav>
   );
 }

@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  PAGE_SIZE,
+  SORT_OPTIONS,
   TABS,
-  clampPage,
   getPageNumbers,
+  sortOptionsFor,
   tabCount,
-  totalPages,
+  tabValueForType,
 } from "./listChrome";
 
 describe("getPageNumbers", () => {
@@ -66,46 +66,6 @@ describe("getPageNumbers", () => {
   });
 });
 
-describe("totalPages", () => {
-  it("rounds up a partial last page", () => {
-    expect(totalPages(1, 10)).toBe(1);
-    expect(totalPages(10, 10)).toBe(1);
-    expect(totalPages(11, 10)).toBe(2);
-  });
-
-  it("is zero for an empty result set", () => {
-    expect(totalPages(0, 10)).toBe(0);
-  });
-
-  it("defaults to the page size the list requests", () => {
-    expect(totalPages(PAGE_SIZE + 1)).toBe(2);
-  });
-});
-
-describe("clampPage", () => {
-  it("pulls an out-of-range page back into range", () => {
-    // The case that matters: a filter change shrinks the result set while
-    // the user is on page 9. Without the clamp the list shows an empty page
-    // and the pagination row is gone, so there is no way back.
-    expect(clampPage(9, 3)).toBe(3);
-    expect(clampPage(0, 3)).toBe(1);
-    expect(clampPage(-4, 3)).toBe(1);
-  });
-
-  it("leaves a valid page alone", () => {
-    expect(clampPage(2, 3)).toBe(2);
-  });
-
-  it("does not clamp against a page count it does not have yet", () => {
-    // Zero pages means the count has not arrived (or the set is empty).
-    // Clamping against it would send the reader to page 0, or snap them to
-    // page 1 on every first render before the response lands.
-    expect(clampPage(5, 0)).toBe(5);
-    // A junk page is still floored to 1, count or no count.
-    expect(clampPage(Number.NaN, 0)).toBe(1);
-  });
-});
-
 describe("tabCount", () => {
   const counts = { eligible: 7, potential: 12 };
 
@@ -150,5 +110,42 @@ describe("TABS", () => {
     expect(params).not.toContain("favorites");
     expect(params).not.toContain("my_trials");
     expect(params).not.toContain("not_eligible");
+  });
+});
+
+describe("tabValueForType", () => {
+  // The host's `initialFilters.type` is public API. Before this, the tab
+  // state overwrote it on the first render, so a host mounting the remote
+  // to show the potential subset silently got the default tab instead.
+  it("selects the tab that sends the requested type", () => {
+    expect(tabValueForType("eligible")).toBe("eligible");
+    expect(tabValueForType("potential")).toBe("potential");
+  });
+
+  it("falls back to the default tab for no type", () => {
+    expect(tabValueForType(undefined)).toBe("eligible_and_potential");
+  });
+
+  it("falls back for a server value that has no tab", () => {
+    // `all` is accepted by the server but is not offered as a tab (it takes
+    // the admin branch, which skips the eligibility filter). Selecting a
+    // tab that does not exist would leave the bar with nothing highlighted.
+    expect(tabValueForType("all")).toBe("eligible_and_potential");
+    expect(tabValueForType("favorites")).toBe("eligible_and_potential");
+  });
+});
+
+describe("sortOptionsFor", () => {
+  it("returns CB's three for a value it already offers", () => {
+    expect(sortOptionsFor("goodnessScore")).toEqual(SORT_OPTIONS);
+  });
+
+  it("surfaces a value the list does not offer", () => {
+    // The server accepts more sort keys than CB shows. A controlled
+    // <select> whose value matches no <option> renders blank while the list
+    // is genuinely sorted that way — the control would misreport itself.
+    const options = sortOptionsFor("updated");
+    expect(options).toHaveLength(SORT_OPTIONS.length + 1);
+    expect(options.at(-1)).toEqual({ value: "updated", label: "Sorted by updated" });
   });
 });

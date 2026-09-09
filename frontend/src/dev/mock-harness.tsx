@@ -88,11 +88,20 @@ const results = [
 ] as unknown as TrialMatch[];
 
 const trials: TrialsResponse = {
+  // `count` is the number of PAGES, which the pager reads directly.
   count: 1,
   itemsTotalCount: results.length,
   next: null,
   previous: null,
   results,
+  // Without this the tab badges render empty — absent counts mean "the
+  // server could not judge", which is the honest reading for a live server
+  // but just makes the harness look broken. Split by the fixtures' own
+  // `matchingType` so the numbers match the cards on screen.
+  tabCounts: {
+    eligible: results.filter((t) => t.matchingType === "eligible").length,
+    potential: results.filter((t) => t.matchingType !== "eligible").length,
+  },
 };
 
 const formSettings = {
@@ -180,14 +189,24 @@ function detailFor(id: string) {
 }
 
 // Minimal axios stand-in: route by URL, ignore params/body.
+//
+// The list routes are matched BEFORE the `:id` ones. `/trials/search/` and
+// `/trials/search/match/` are otherwise captured by the detail patterns —
+// `[^/]+` happily matches the literal "search" — and the list would be
+// served a single trial-detail object, leaving the harness showing "No
+// trials found" with no clue why.
+const LIST_PATHS = ["/trials/search/", "/trials/search/match/"];
+
 const apiClient = {
   get: async (url: string) => {
     if (url.includes("form-settings")) return { data: formSettings };
+    if (LIST_PATHS.includes(url)) return { data: trials };
     const detail = url.match(/^\/trials\/([^/]+)\/$/);
     if (detail) return { data: detailFor(detail[1]) };
     return { data: trials };
   },
   post: async (url: string) => {
+    if (LIST_PATHS.includes(url)) return { data: trials };
     const detail = url.match(/^\/trials\/([^/]+)\/match\/$/);
     if (detail) return { data: detailFor(detail[1]) };
     return { data: trials };

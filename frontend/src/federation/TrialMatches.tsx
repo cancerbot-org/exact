@@ -27,8 +27,7 @@ import {
   DEFAULT_SORT,
   PAGE_SIZE,
   TABS,
-  clampPage,
-  totalPages,
+  tabValueForType,
   type TabValue,
 } from "./listChrome";
 import { useTrials } from "./hooks";
@@ -48,7 +47,12 @@ function TrialMatchesInner({
 
   const [filters, setFilters] = useState<FilterState>(initialFilters ?? {});
   const [selectedTrial, setSelectedTrial] = useState<TrialMatch | null>(null);
-  const [activeTab, setActiveTab] = useState<TabValue>("eligible_and_potential");
+  // Seeded from the host's `initialFilters.type` rather than defaulted: the
+  // prop is public API, and a host that mounts the remote asking for the
+  // potential subset must not silently get the default tab's result set.
+  const [activeTab, setActiveTab] = useState<TabValue>(() =>
+    tabValueForType(initialFilters?.type),
+  );
   const [sort, setSort] = useState<string>(initialFilters?.sort ?? DEFAULT_SORT);
   const [page, setPage] = useState(1);
 
@@ -123,28 +127,45 @@ function TrialMatchesInner({
   const trials = query.data?.results ?? [];
   const totalCount = query.data?.itemsTotalCount ?? null;
   const tabCounts = query.data?.tabCounts;
-  const pageCount = totalPages(totalCount ?? 0);
+  // The server's own page total (`count`), not `ceil(items / PAGE_SIZE)`:
+  // the two agree only while the client's page size matches what the server
+  // actually applied, and the server is the one that decides.
+  const pageCount = query.data?.count ?? 0;
 
-  // A filter or tab change can shrink the result set under the current page.
-  // Snap back rather than showing an empty page with no way forward.
+  // Reset to the first page whenever the *effective* query changes — tab,
+  // sort, or a filter that has finished debouncing. Adjusting state during
+  // render rather than in an effect (the pattern React documents for derived
+  // state) so the reset is part of the same render that changes the filter:
+  // an effect would let one request go out for page N of the new filter
+  // first, and a request for a page past the new end is a 404 from DRF's
+  // paginator, not an empty list.
+  //
+  // Keyed on the debounced filters for the same reason: resetting the page
+  // the instant a key is pressed would fire a request for page 1 of the
+  // *previous* filter, which the user sees as a flash of unfiltered results.
+  const queryKey = JSON.stringify(queryFilters);
+  const [lastQueryKey, setLastQueryKey] = useState(queryKey);
+  if (lastQueryKey !== queryKey) {
+    setLastQueryKey(queryKey);
+    setPage(1);
+  }
+
+  // A page past the end is a 404 (`NotFound` from PageNumberPagination), and
+  // `keepPreviousData` leaves the stale page — and its stale pager — on
+  // screen, so every further click reproduces it. Recover to a page that
+  // exists. Reachable when the host restores a `?page=` from its own URL, or
+  // when a click lands during the window where the pager is still showing
+  // the previous response's page count.
+  const isPageNotFound =
+    query.isError &&
+    (query.error as { response?: { status?: number } })?.response?.status === 404;
   useEffect(() => {
-    if (pageCount > 0 && page > pageCount) setPage(clampPage(page, pageCount));
-  }, [page, pageCount]);
+    if (isPageNotFound && page !== 1) setPage(1);
+  }, [isPageNotFound, page]);
 
-  const handleTabChange = (next: TabValue) => {
-    setActiveTab(next);
-    setPage(1);
-  };
-
-  const handleSortChange = (next: string) => {
-    setSort(next);
-    setPage(1);
-  };
-
-  const handleFiltersChange = (next: FilterState) => {
-    setFilters(next);
-    setPage(1);
-  };
+  const handleTabChange = (next: TabValue) => setActiveTab(next);
+  const handleSortChange = (next: string) => setSort(next);
+  const handleFiltersChange = (next: FilterState) => setFilters(next);
 
   const diseaseCode = useMemo(() => {
     const d = (patientInfo as Record<string, unknown> | null | undefined)?.["disease"];
@@ -218,18 +239,24 @@ function TrialMatchesInner({
         </p>
       ) : null}
 
-      {/* Kept mounted while a page or filter change is in flight, because
-          `keepPreviousData` leaves the previous rows on screen: without a
-          signal the list looks stale-but-current. CB shows the same
-          floating "Updating…" pill. */}
-      {query.isFetching && !query.isLoading ? (
-        <div className="exact-list__updating" role="status">
-          Updating…
-        </div>
-      ) : null}
+      {/* `isPlaceholderData`, not `isFetching`: the rows on screen belong to
+          the previous query only while placeholder data is showing. Keyed on
+          `isFetching` this dimmed the whole list on every background refetch
+          — including the window-focus one React Query runs by default after
+          30s away — for a request the reader never asked for.
+
+          The live region is always mounted and swaps its text: several
+          screen readers only announce changes to a region that already
+          existed, so a conditionally-rendered `role="status"` is silent. */}
+      <div className="exact-list__updating-slot" role="status" aria-live="polite">
+        {query.isPlaceholderData ? (
+          <span className="exact-list__updating">Updating…</span>
+        ) : null}
+      </div>
 
       <div
-        className={`exact-list__rows${query.isFetching ? " is-fetching" : ""}`}
+        className={`exact-list__rows${query.isPlaceholderData ? " is-stale" : ""}`}
+        aria-busy={query.isPlaceholderData || undefined}
       >
         {trials.map((t) => (
           <TrialCard key={t.trialId} trial={t} onSelect={handleSelect} />

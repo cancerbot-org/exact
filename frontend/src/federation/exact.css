@@ -23,6 +23,10 @@
   --exact-color-not-eligible: #dc2626;
   --exact-color-muted: #6b7280;
   --exact-color-surface: #ffffff;
+  /* Raised/inset fill behind small chips — tab counts, the current page
+   * marker. Referenced by the list chrome; a dark host must override it or
+   * those markers vanish into their own background. */
+  --exact-color-surface-2: hsl(0 0% 94%);
   --exact-color-border: hsl(0 0% 91.4%); /* CB --border-secondary */
   --exact-color-text: hsl(216 17% 14%); /* CB --text-primary-900 */
   --exact-color-text-muted: hsl(220 9% 32%); /* CB --text-secondary-700 */
@@ -494,6 +498,21 @@
   margin-bottom: 1rem;
   border-bottom: 1px solid var(--exact-color-border);
   overflow-x: auto;
+  /* Room for the focus ring: `overflow-x: auto` clips an outline drawn
+   * outside the first and last tab, which is exactly where a keyboard user
+   * arrives first. */
+  padding: 2px;
+}
+
+/* The stylesheet defined no focus style at all, so every control the chrome
+ * added relied on whatever the host's reset left behind — often nothing. */
+.exact-root .exact-tab:focus-visible,
+.exact-root .exact-sort__select:focus-visible,
+.exact-root .exact-pagination__step:focus-visible,
+.exact-root .exact-pagination__page:focus-visible {
+  outline: 2px solid var(--exact-color-primary);
+  outline-offset: 1px;
+  border-radius: 0.25rem;
 }
 
 .exact-root .exact-tab {
@@ -580,21 +599,33 @@
   transition: opacity 0.2s;
 }
 
-/* Previous rows stay on screen across a page or filter change
-   (`keepPreviousData`); dimming them says the list is not yet the answer to
-   the question just asked, and blocking pointer events stops a click landing
-   on a row that is about to be replaced. */
-.exact-root .exact-list__rows.is-fetching {
+/* Previous rows stay on screen while the next page or filter is in flight
+   (`keepPreviousData`); dimming says the list is not yet the answer to the
+   question just asked. Interaction is deliberately NOT blocked:
+   `pointer-events: none` stops the mouse and not the keyboard, so it only
+   half-delivered on the promise, and the rows underneath are real trials
+   whose detail page is worth opening either way. */
+.exact-root .exact-list__rows.is-stale {
   opacity: 0.5;
-  pointer-events: none;
 }
 
+.exact-root .exact-list__updating-slot {
+  position: sticky;
+  bottom: 1rem;
+  z-index: 2;
+  display: flex;
+  justify-content: center;
+  /* Zero height so an empty slot cannot push the rows around; the pill
+   * overlays the list rather than displacing it. */
+  height: 0;
+  overflow: visible;
+}
+
+/* Deliberately NOT `position: fixed`. A scoped selector still renders
+ * globally: a fixed pill lands over whatever host chrome occupies the bottom
+ * of the viewport, and any host ancestor with a transform re-anchors it
+ * somewhere arbitrary. Sticky keeps it inside the remote's own box. */
 .exact-root .exact-list__updating {
-  position: fixed;
-  bottom: 1.5rem;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 50;
   padding: 0.375rem 0.75rem;
   border: 1px solid var(--exact-color-border);
   border-radius: 624.9375rem;
@@ -678,8 +709,20 @@
   color: var(--exact-color-text-tertiary);
 }
 
+.exact-root .exact-pagination__position {
+  display: none;
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--exact-color-text-muted);
+  white-space: nowrap;
+}
+
 @media (max-width: 640px) {
   .exact-root .exact-pagination__pages {
     display: none;
+  }
+
+  .exact-root .exact-pagination__position {
+    display: inline;
   }
 }

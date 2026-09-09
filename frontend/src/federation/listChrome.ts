@@ -33,6 +33,14 @@ export const TABS: TabDef[] = [
   { value: "potential", label: "Potential", param: "potential" },
 ];
 
+/** The tab whose `param` matches a `type` the host passed in `initialFilters`.
+ *  Falls back to the default tab for `undefined` and for values that are not
+ *  tabs (`all` is a supported server value but is not offered as a tab). */
+export function tabValueForType(type: string | undefined): TabValue {
+  const match = TABS.find((tab) => tab.param === type);
+  return match ? match.value : "eligible_and_potential";
+}
+
 /** The count to show next to a tab, or null when the server did not say.
  *
  *  Absence is not zero: the server omits `tabCounts` when it had no patient
@@ -70,9 +78,16 @@ export const SORT_OPTIONS: SortOption[] = [
 
 export const DEFAULT_SORT = "goodnessScore";
 
-export function totalPages(itemsTotalCount: number, pageSize = PAGE_SIZE): number {
-  if (itemsTotalCount <= 0) return 0;
-  return Math.ceil(itemsTotalCount / pageSize);
+/** The options to render, given the value the control is actually set to.
+ *
+ *  The server accepts more sort keys than CB offers (`status`, `phase`,
+ *  `updated`, `enrollment`, `patientBurdenScore`). A host can pass one via
+ *  `initialFilters.sort`, and a `<select>` whose value matches no `<option>`
+ *  renders blank while the list is genuinely sorted that way — the control
+ *  would be lying about what it is doing. Surface the value instead. */
+export function sortOptionsFor(value: string): SortOption[] {
+  if (SORT_OPTIONS.some((option) => option.value === value)) return SORT_OPTIONS;
+  return [...SORT_OPTIONS, { value, label: `Sorted by ${value}` }];
 }
 
 /** Page numbers to render, with "…" where the run is broken.
@@ -106,13 +121,4 @@ export function getPageNumbers(
   if (currentPage < total - 2) pages.push("…");
   pages.push(total);
   return pages;
-}
-
-/** Clamp a page number into range, so a stale `?page=` from the host's URL
- *  (or a filter change that shrank the result set) cannot leave the list on
- *  an empty page with no way back. */
-export function clampPage(page: number, total: number): number {
-  if (!Number.isFinite(page) || page < 1) return 1;
-  if (total > 0 && page > total) return total;
-  return Math.floor(page);
 }
