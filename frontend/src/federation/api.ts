@@ -32,21 +32,26 @@ interface FetchTrialsArgs {
   filters?: FilterState;
   /** 1-indexed page number; omit or pass 1 for the first page. */
   page?: number;
+  /** Rows per page. CB shows 10; the server default is 20. */
+  limit?: number;
 }
 
 /** Fetch the trial-match list. Two paths depending on inputs:
  *
  *  - **Inline patient profile** (`patientInfo` non-empty): POSTs to
- *    `/trials/match/` with `{ patient_info: … }` in the body. POST
+ *    `/trials/search/match/` with `{ patient_info: … }` in the body. POST
  *    because both the Fetch spec and axios's XHR adapter forbid
  *    GET-with-body, and the patient payload is too large for a query
- *    string. The endpoint is a thin alias for the list action
- *    (`@action(methods=['post'], url_path='match')` on TrialsViewSet,
- *    PR #121) so the response shape is unchanged.
+ *    string. The alias binds the `search` action (EXACT #417), so the
+ *    response is the sorted one and carries `tabCounts`.
  *  - **Server-side resolver path** (`personId` only): GETs
- *    `/trials/?person_id=…`. EXACT's `resolve_patient_info` will
- *    fetch the patient from CTOMOP server-side. No body, no
+ *    `/trials/search/?person_id=…`. EXACT's `resolve_patient_info` will
+ *    fetch the patient from PROMOP server-side. No body, no
  *    Fetch-spec issue.
+ *
+ *  Both go to `search` rather than `list`: only `search` reads `?sort=`
+ *  and returns the per-tab counts. `list` orders by
+ *  `-match_score, -posted_date, id` and ignores sorting entirely.
  */
 export async function fetchTrials({
   apiClient,
@@ -54,14 +59,16 @@ export async function fetchTrials({
   personId,
   filters,
   page,
+  limit,
 }: FetchTrialsArgs): Promise<TrialsResponse> {
   const params = filterStateToParams(filters);
   if (page != null && page > 1) params.page = String(page);
+  if (limit != null) params.limit = String(limit);
   const hasInlinePayload = patientInfo != null && Object.keys(patientInfo).length > 0;
 
   if (hasInlinePayload) {
     const response = await apiClient.post<TrialsResponse>(
-      "/trials/match/",
+      "/trials/search/match/",
       { patient_info: patientInfo },
       { params },
     );
@@ -71,7 +78,7 @@ export async function fetchTrials({
   if (personId != null) {
     params.person_id = String(personId);
   }
-  const response = await apiClient.get<TrialsResponse>("/trials/", { params });
+  const response = await apiClient.get<TrialsResponse>("/trials/search/", { params });
   return response.data;
 }
 
@@ -174,6 +181,8 @@ export function filterStateToParams(filters?: FilterState): Record<string, strin
   if (filters.sponsor) out.sponsor = filters.sponsor;
   if (filters.register) out.register = filters.register;
   if (filters.searchTitle) out.searchTitle = filters.searchTitle;
+  if (filters.phase) out.phase = filters.phase;
+  if (filters.lastUpdate) out.lastUpdate = filters.lastUpdate;
   if (filters.searchTreatment) out.searchTreatment = filters.searchTreatment;
   if (filters.type) out.type = filters.type;
   if (filters.sort) out.sort = filters.sort;

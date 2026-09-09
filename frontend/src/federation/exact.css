@@ -23,6 +23,10 @@
   --exact-color-not-eligible: #dc2626;
   --exact-color-muted: #6b7280;
   --exact-color-surface: #ffffff;
+  /* Raised/inset fill behind small chips — tab counts, the current page
+   * marker. Referenced by the list chrome; a dark host must override it or
+   * those markers vanish into their own background. */
+  --exact-color-surface-2: hsl(0 0% 94%);
   --exact-color-border: hsl(0 0% 91.4%); /* CB --border-secondary */
   --exact-color-text: hsl(216 17% 14%); /* CB --text-primary-900 */
   --exact-color-text-muted: hsl(220 9% 32%); /* CB --text-secondary-700 */
@@ -468,5 +472,264 @@
   .exact-root .exact-detail__elig {
     flex: 1;
     min-width: 0;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * List chrome — title, tabs, sort, pagination. Mirrors CB's Your Trials page
+ * (`ui.v2/client/pages/Trials.tsx`), which builds the same shapes out of
+ * Tailwind utilities. Written by hand here because the remote ships no
+ * utility layer: everything stays scoped under `.exact-root` so nothing can
+ * leak into the host.
+ * ------------------------------------------------------------------------- */
+.exact-root .exact-list__title {
+  margin: 0 0 1rem;
+  font-size: 1.5rem;
+  font-weight: 600;
+  line-height: 2rem;
+  letter-spacing: -0.02em;
+  color: var(--exact-color-text);
+}
+
+.exact-root .exact-tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.25rem;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid var(--exact-color-border);
+  overflow-x: auto;
+  /* Room for the focus ring. `overflow-x: auto` computes `overflow-y` to
+   * `auto` as well, so the outline is clipped on both axes at the padding
+   * box: 3px for the ring's 2px width at 1px offset, and 4px below, where
+   * the tabs sit a further 1px low from the negative margin that laps them
+   * over the container's rule. */
+  padding: 3px 3px 4px;
+}
+
+/* The stylesheet defined no focus style at all, so every control the chrome
+ * added relied on whatever the host's reset left behind — often nothing. */
+.exact-root .exact-tab:focus-visible,
+.exact-root .exact-sort__select:focus-visible,
+.exact-root .exact-pagination__step:focus-visible,
+.exact-root .exact-pagination__page:focus-visible {
+  outline: 2px solid var(--exact-color-primary);
+  outline-offset: 1px;
+  border-radius: 0.25rem;
+}
+
+.exact-root .exact-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem 0.75rem;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.25rem;
+  color: var(--exact-color-text-tertiary);
+  white-space: nowrap;
+  cursor: pointer;
+  /* Pulls the 2px indicator over the container's 1px rule so the active tab
+     sits on the line rather than above it — CB does the same with -mb-px. */
+  margin-bottom: -1px;
+}
+
+.exact-root .exact-tab:hover {
+  color: var(--exact-color-text);
+}
+
+.exact-root .exact-tab.is-active {
+  color: var(--exact-color-primary);
+  border-bottom-color: var(--exact-color-primary);
+}
+
+.exact-root .exact-tab__count {
+  display: inline-block;
+  min-width: 1.5rem;
+  padding: 0.0625rem 0.375rem;
+  border-radius: 624.9375rem;
+  background: var(--exact-color-surface-2, rgba(10, 13, 18, 0.06));
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.125rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.exact-root .exact-tab.is-active .exact-tab__count {
+  background: var(--exact-color-primary);
+  color: #fff;
+}
+
+.exact-root .exact-list__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.exact-root .exact-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--exact-color-text-muted);
+}
+
+.exact-root .exact-sort__select {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--exact-color-border);
+  border-radius: var(--exact-border-radius);
+  background: var(--exact-color-surface);
+  box-shadow: var(--exact-shadow-sm);
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--exact-color-text-muted);
+  cursor: pointer;
+}
+
+.exact-root .exact-list__rows {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  transition: opacity 0.2s;
+}
+
+/* Previous rows stay on screen while the next page or filter is in flight
+   (`keepPreviousData`); dimming says the list is not yet the answer to the
+   question just asked. Interaction is deliberately NOT blocked:
+   `pointer-events: none` stops the mouse and not the keyboard, so it only
+   half-delivered on the promise, and the rows underneath are real trials
+   whose detail page is worth opening either way. */
+.exact-root .exact-list__rows.is-stale {
+  opacity: 0.5;
+}
+
+.exact-root .exact-list__updating-slot {
+  position: sticky;
+  bottom: 1rem;
+  z-index: 2;
+  display: flex;
+  justify-content: center;
+  /* Not the default `stretch`: the slot's line is 0 tall, so stretching the
+   * pill floors its content box at 0 and the text spills out of its own
+   * lozenge. Centring lets the pill size to its content and overflow the
+   * zero-height line symmetrically. */
+  align-items: center;
+  /* Zero height so an empty slot cannot push the rows around; the pill
+   * overlays the list rather than displacing it. */
+  height: 0;
+  overflow: visible;
+}
+
+/* Deliberately NOT `position: fixed`. A scoped selector still renders
+ * globally: a fixed pill lands over whatever host chrome occupies the bottom
+ * of the viewport, and any host ancestor with a transform re-anchors it
+ * somewhere arbitrary. Sticky keeps it inside the remote's own box. */
+.exact-root .exact-list__updating {
+  padding: 0.375rem 0.75rem;
+  border: 1px solid var(--exact-color-border);
+  border-radius: 624.9375rem;
+  background: var(--exact-color-surface);
+  box-shadow: 0 4px 6px -1px rgba(10, 13, 18, 0.1);
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--exact-color-text-tertiary);
+  pointer-events: none;
+}
+
+.exact-root .exact-pagination {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--exact-color-border);
+}
+
+.exact-root .exact-pagination__step {
+  flex: 1 0 auto;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--exact-color-text-muted);
+  cursor: pointer;
+  text-align: left;
+}
+
+.exact-root .exact-pagination__step:last-child {
+  text-align: right;
+}
+
+.exact-root .exact-pagination__step:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.exact-root .exact-pagination__step:disabled {
+  color: var(--exact-color-text-tertiary);
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.exact-root .exact-pagination__pages {
+  display: flex;
+  align-items: center;
+  gap: 0.125rem;
+}
+
+.exact-root .exact-pagination__page {
+  min-width: 2.5rem;
+  padding: 0.5rem;
+  border: none;
+  border-radius: var(--exact-border-radius);
+  background: none;
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--exact-color-text-muted);
+  cursor: pointer;
+}
+
+.exact-root .exact-pagination__page:hover {
+  background: var(--exact-color-surface-2, rgba(10, 13, 18, 0.04));
+}
+
+.exact-root .exact-pagination__page.is-current {
+  background: var(--exact-color-surface-2, rgba(10, 13, 18, 0.06));
+  color: var(--exact-color-text);
+  font-weight: 600;
+}
+
+.exact-root .exact-pagination__gap {
+  min-width: 2.5rem;
+  padding: 0.5rem;
+  text-align: center;
+  color: var(--exact-color-text-tertiary);
+}
+
+.exact-root .exact-pagination__position {
+  display: none;
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--exact-color-text-muted);
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .exact-root .exact-pagination__pages {
+    display: none;
+  }
+
+  .exact-root .exact-pagination__position {
+    display: inline;
   }
 }

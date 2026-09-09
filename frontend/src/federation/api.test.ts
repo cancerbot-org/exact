@@ -70,7 +70,7 @@ function fakeClient() {
 }
 
 describe("fetchTrials routing", () => {
-  it("POSTs to /trials/match/ with patient_info when an inline payload is given", async () => {
+  it("POSTs to /trials/search/match/ with patient_info when an inline payload is given", async () => {
     const apiClient = fakeClient();
     await fetchTrials({
       apiClient,
@@ -78,7 +78,7 @@ describe("fetchTrials routing", () => {
       filters: { country: "US" },
     });
     expect(apiClient.post).toHaveBeenCalledWith(
-      "/trials/match/",
+      "/trials/search/match/",
       { patient_info: { disease: "MM" } },
       { params: { country: "US" } },
     );
@@ -89,23 +89,23 @@ describe("fetchTrials routing", () => {
     const apiClient = fakeClient();
     await fetchTrials({ apiClient, patientInfo: {}, personId: 7 });
     expect(apiClient.post).not.toHaveBeenCalled();
-    expect(apiClient.get).toHaveBeenCalledWith("/trials/", {
+    expect(apiClient.get).toHaveBeenCalledWith("/trials/search/", {
       params: { person_id: "7" },
     });
   });
 
-  it("GETs /trials/?person_id= for the server-side resolver path", async () => {
+  it("GETs /trials/search/?person_id= for the server-side resolver path", async () => {
     const apiClient = fakeClient();
     await fetchTrials({ apiClient, personId: 42, filters: { sort: "matchScore" } });
-    expect(apiClient.get).toHaveBeenCalledWith("/trials/", {
+    expect(apiClient.get).toHaveBeenCalledWith("/trials/search/", {
       params: { sort: "matchScore", person_id: "42" },
     });
   });
 
-  it("GETs /trials/ with no person_id when neither patient context is given", async () => {
+  it("GETs /trials/search/ with no person_id when neither patient context is given", async () => {
     const apiClient = fakeClient();
     await fetchTrials({ apiClient });
-    expect(apiClient.get).toHaveBeenCalledWith("/trials/", { params: {} });
+    expect(apiClient.get).toHaveBeenCalledWith("/trials/search/", { params: {} });
   });
 });
 
@@ -150,5 +150,41 @@ describe("fetchTrialDetail routing", () => {
     await fetchTrialDetail({ apiClient, trialId: 9, patientInfo: {} });
     expect(apiClient.post).not.toHaveBeenCalled();
     expect(apiClient.get).toHaveBeenCalledWith("/trials/9/", { params: {} });
+  });
+});
+
+describe("fetchTrials — the search path", () => {
+  // The list used to go to `list` (`/trials/` and its POST alias
+  // `/trials/match/`), where `?sort=` is ignored and there are no tab
+  // counts. These lock the move to `search` so a revert would fail loudly
+  // rather than silently returning an unsorted page.
+  it("sends sort and page through to the search endpoint", async () => {
+    const apiClient = fakeClient();
+    await fetchTrials({
+      apiClient,
+      patientInfo: { disease: "multiple myeloma" },
+      filters: { sort: "distance" },
+      page: 3,
+      limit: 10,
+    });
+    expect(apiClient.post).toHaveBeenCalledWith(
+      "/trials/search/match/",
+      { patient_info: { disease: "multiple myeloma" } },
+      { params: { sort: "distance", page: "3", limit: "10" } },
+    );
+  });
+
+  it("omits page=1, which is the server's default", async () => {
+    const apiClient = fakeClient();
+    await fetchTrials({ apiClient, personId: 9001, page: 1, limit: 10 });
+    expect(apiClient.get).toHaveBeenCalledWith("/trials/search/", {
+      params: { person_id: "9001", limit: "10" },
+    });
+  });
+
+  it("maps the phase and lastUpdate filters the panel will send", () => {
+    expect(
+      filterStateToParams({ phase: "PHASE3", lastUpdate: "2026-01-01" }),
+    ).toEqual({ phase: "PHASE3", lastUpdate: "2026-01-01" });
   });
 });

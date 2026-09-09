@@ -71,6 +71,16 @@ export interface TrialMatch {
   [key: string]: unknown;
 }
 
+/** Per-tab totals over the whole matched corpus, not over the rows in this
+ *  response — so the Eligible badge does not read 0 while the user is on the
+ *  Potential tab. Absent when the server could not judge: no patient context,
+ *  or `?type=all`, whose admin branch skips the eligibility filter. Treat
+ *  absence as "unknown", never as zero. (EXACT #417.) */
+export interface TabCounts {
+  eligible: number;
+  potential: number;
+}
+
 export interface TrialsResponse {
   /** Total number of pages (not items). Use `itemsTotalCount` for total items. */
   count: number;
@@ -78,6 +88,7 @@ export interface TrialsResponse {
   next: string | null;
   previous: string | null;
   results: TrialMatch[];
+  tabCounts?: TabCounts;
 }
 
 /** One row in a trial-detail `details` group. Mirrors EXACT's
@@ -154,8 +165,17 @@ export interface FilterState {
   searchTitle?: string;
   /** Free-text intervention/treatment keyword search. */
   searchTreatment?: string;
-  /** "type" param — narrows to `eligible` / `potential` server-side. */
-  type?: "eligible" | "potential";
+  /** Trial phase — keeps trials at that phase **or later**. Trials whose
+   *  phase was never ingested drop out of every value, including the
+   *  lowest (EXACT #417). */
+  phase?: string;
+  /** ISO date — keep trials updated after it. */
+  lastUpdate?: string;
+  /** "type" param. `eligible` / `potential` narrow server-side; `all`
+   *  switches to the admin corpus, which skips the eligibility filter and
+   *  several study preferences with it (EXACT #424), and suppresses
+   *  `tabCounts`. */
+  type?: "eligible" | "potential" | "all";
   /** Sort key. Defaults to `goodnessScore`. */
   sort?:
     | "goodnessScore"
