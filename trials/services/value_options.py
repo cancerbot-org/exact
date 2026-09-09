@@ -13,13 +13,16 @@ def ordered_dict(data):
 
 class ValueOptions:
     def cache_key(self):
+        # v3: bumped for the `recruitmentStatuses` key below — a deploy
+        # hitting a warm cache would otherwise serve the pre-key shape for up
+        # to an hour, and the search filter's dropdown would come back empty.
         # v2: bumped on #63 — `all_options()` gained 40 new per-disease
         # keys (flipiScore{Mm|Fl|Bc|Cll|Mcl}, cytogenicMarkers{…}, …).
         # Without the bump, a deploy hitting a populated Redis cache
         # would serve the pre-#63 shape (missing those 40 keys), letting
         # the cached blob drift from fresh `all_options()` output until
         # the 1h TTL expires.
-        return 'ValueOptions.all_options.v2'
+        return 'ValueOptions.all_options.v3'
 
     @staticmethod
     def to_value_and_label(data):
@@ -104,6 +107,33 @@ class ValueOptions:
 
         items = ConcomitantMedication.objects.filter(concomitantmedicationdisease__disease__code=disease_code).all()
         return ordered_dict({x.code: x.title for x in items})
+
+    @cached_property
+    def recruitment_statuses(self):
+        """Trial recruitment states, for the search filter's dropdown.
+
+        Distinct from `statuses` below, which is the patient-invitation enum
+        ("Looking for trial", "Waiting for patient acceptance", …). A frontend
+        reaching for a recruitment filter finds only that one today and either
+        renders the wrong vocabulary or hard-codes this list itself — the
+        federated remote does the latter.
+
+        Values are what `by_recruitment_status` accepts: the two it special-
+        cases, plus the ClinicalTrials.gov states it falls through to as a
+        case-insensitive exact match on `Trial.recruitment_status`.
+        """
+        return {
+            '': 'ALL',
+            'RECRUITING': 'Recruiting',
+            'RECRUITING_AND_NOT_YET_RECRUITING': 'Recruiting & Not Yet Recruiting',
+            'NOT_YET_RECRUITING': 'Not yet recruiting',
+            'ENROLLING_BY_INVITATION': 'Enrolling by invitation',
+            'ACTIVE_NOT_RECRUITING': 'Active, not recruiting',
+            'COMPLETED': 'Completed',
+            'SUSPENDED': 'Suspended',
+            'TERMINATED': 'Terminated',
+            'WITHDRAWN': 'Withdrawn',
+        }
 
     @cached_property
     def statuses(self):
@@ -912,6 +942,16 @@ class ValueOptions:
         return {
             'statuses': {
                 'options': self.to_value_and_label(self.statuses)
+            },
+            # Plural on purpose. `all_options()` is a shared namespace: the
+            # trial-detail templates in trial_details/trial_attributes.py look
+            # up a field's `options` by matching the field name against these
+            # keys, so a key named `recruitmentStatus` would silently retype
+            # the detail page's Recruitment Status field from string to select.
+            # `phases` / `studyType` / `register` are wired that way deliberately;
+            # this one is for the search filter only.
+            'recruitmentStatuses': {
+                'options': self.to_value_and_label(self.recruitment_statuses)
             },
             'register': {
                 'options': self.to_value_and_label(self.registers)
