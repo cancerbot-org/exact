@@ -57,6 +57,13 @@ export function useTrials({
     // data is kept across page/filter changes so the list does not blank out
     // between requests — CB does the same (`keepPreviousData` in useTrials).
     placeholderData: keepPreviousData,
+    // A request for a page past the end is a 404 from DRF's paginator, and
+    // it will 404 again on every retry. Without this the default three
+    // retries spend ~7s showing dimmed rows and "Updating…" before the
+    // error commits and the list can recover to a page that exists.
+    retry: (failureCount, error) =>
+      (error as { response?: { status?: number } })?.response?.status !== 404 &&
+      failureCount < 3,
     enabled: enabled && (patientInfo != null || personId != null),
     staleTime: 30_000,
   });

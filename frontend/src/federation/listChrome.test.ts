@@ -146,6 +146,11 @@ describe("sortOptionsFor", () => {
     // is genuinely sorted that way — the control would misreport itself.
     const options = sortOptionsFor("updated");
     expect(options).toHaveLength(SORT_OPTIONS.length + 1);
-    expect(options.at(-1)).toEqual({ value: "updated", label: "Sorted by updated" });
+    // Indexed rather than `.at(-1)`: the lib is ES2020, where `Array.at` is
+    // only declared transitively, and the build should not lean on that.
+    expect(options[options.length - 1]).toEqual({
+      value: "updated",
+      label: "Sorted by updated",
+    });
   });
 });

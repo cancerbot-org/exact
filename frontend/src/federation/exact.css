@@ -498,10 +498,12 @@
   margin-bottom: 1rem;
   border-bottom: 1px solid var(--exact-color-border);
   overflow-x: auto;
-  /* Room for the focus ring: `overflow-x: auto` clips an outline drawn
-   * outside the first and last tab, which is exactly where a keyboard user
-   * arrives first. */
-  padding: 2px;
+  /* Room for the focus ring. `overflow-x: auto` computes `overflow-y` to
+   * `auto` as well, so the outline is clipped on both axes at the padding
+   * box: 3px for the ring's 2px width at 1px offset, and 4px below, where
+   * the tabs sit a further 1px low from the negative margin that laps them
+   * over the container's rule. */
+  padding: 3px 3px 4px;
 }
 
 /* The stylesheet defined no focus style at all, so every control the chrome
@@ -615,6 +617,11 @@
   z-index: 2;
   display: flex;
   justify-content: center;
+  /* Not the default `stretch`: the slot's line is 0 tall, so stretching the
+   * pill floors its content box at 0 and the text spills out of its own
+   * lozenge. Centring lets the pill size to its content and overflow the
+   * zero-height line symmetrically. */
+  align-items: center;
   /* Zero height so an empty slot cannot push the rows around; the pill
    * overlays the list rather than displacing it. */
   height: 0;
