@@ -175,7 +175,10 @@ export function filterStateToParams(filters?: FilterState): Record<string, strin
   if (filters.trialType) out.trialType = filters.trialType;
   if (filters.trialPurpose) out.trialPurpose = filters.trialPurpose;
   if (filters.studyType) out.studyType = filters.studyType;
-  if (filters.distance != null) out.distance = String(filters.distance);
+  // `> 0`, not `!= null`: the backend gates on `if study_info.distance:`,
+  // so a zero radius is not a filter — sending it would put a parameter on
+  // the wire that the server ignores.
+  if (filters.distance) out.distance = String(filters.distance);
   if (filters.distanceUnits) out.distanceUnits = filters.distanceUnits;
   if (filters.validatedOnly) out.validatedOnly = "true";
   if (filters.sponsor) out.sponsor = filters.sponsor;

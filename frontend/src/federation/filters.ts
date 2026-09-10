@@ -32,8 +32,14 @@ const PANEL_FIELDS = [
   "phase",
   "register",
   "lastUpdate",
-  "country",
   "distance",
+  // No control of their own — `country` is seeded from the patient, and
+  // these three can only arrive through the host's `initialFilters`. They
+  // are counted and cleared all the same, so the badge cannot read 0 while
+  // a filter is running and Reset cannot leave one behind.
+  "country",
+  "region",
+  "studyType",
   "validatedOnly",
 ] as const;
 
@@ -45,8 +51,18 @@ export type PanelField = (typeof PANEL_FIELDS)[number];
  *  clearing it would silently widen the search to every country rather than
  *  restoring the default. The baseline carries whatever the patient implies.
  */
-export function baselineFilters(patientCountry: string | undefined): FilterState {
-  return patientCountry ? { country: patientCountry } : {};
+export function baselineFilters(
+  patientCountry: string | undefined,
+  initialFilters?: FilterState,
+): FilterState {
+  // The host's own initial filters are part of the baseline, not something
+  // Reset throws away: a host that mounts the remote already scoped to a
+  // register or a recruitment status means that scope to survive the button.
+  const base: FilterState = { ...initialFilters };
+  // The patient's country wins over a host default, because it is the more
+  // specific fact — but only when there is one.
+  if (patientCountry) base.country = patientCountry;
+  return base;
 }
 
 function isEmpty(value: unknown): boolean {

@@ -158,7 +158,7 @@ export function FilterPanel({
         />
 
         <SelectFilter
-          label="Phase"
+          label="Phase (this or later)"
           value={filters.phase}
           options={options("phases")}
           onChange={(v) => set({ phase: v })}
@@ -186,13 +186,6 @@ export function FilterPanel({
           value={filters.register}
           options={options("register")}
           onChange={(v) => set({ register: v })}
-        />
-
-        <SelectFilter
-          label="Country"
-          value={filters.country}
-          options={options("allCountries")}
-          onChange={(v) => set({ country: v })}
         />
 
         <Field label="Max distance">
@@ -229,7 +222,7 @@ export function FilterPanel({
               onChange={(e) =>
                 set({ distanceUnits: e.target.value as FilterState["distanceUnits"] })
               }
-              disabled={filters.distance == null}
+              disabled={!filters.distance}
             >
               {DISTANCE_UNITS.map((unit) => (
                 <option key={unit.value} value={unit.value}>
@@ -240,14 +233,6 @@ export function FilterPanel({
           </div>
         </Field>
 
-        <label className="exact-filter exact-filter--check">
-          <input
-            type="checkbox"
-            checked={filters.validatedOnly ?? false}
-            onChange={(e) => set({ validatedOnly: e.target.checked || undefined })}
-          />
-          <span>Validated only</span>
-        </label>
       </div>
 
       <div className="exact-filters__footer">

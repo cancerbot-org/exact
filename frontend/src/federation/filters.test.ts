@@ -108,3 +108,34 @@ describe("DISTANCE_UNITS", () => {
     expect(DISTANCE_UNITS.map((u) => u.value)).toEqual(["miles", "km"]);
   });
 });
+
+describe("baselineFilters with host-supplied initialFilters", () => {
+  it("keeps the host's filters, so Reset does not discard them", () => {
+    // A host that mounts the remote already scoped to a register means that
+    // scope to survive the button; Reset clearing it would silently widen
+    // the search past what the host asked for.
+    expect(baselineFilters("US", { register: "clinicaltrials.gov" })).toEqual({
+      register: "clinicaltrials.gov",
+      country: "US",
+    });
+  });
+
+  it("lets the patient's own country win over a host default", () => {
+    expect(baselineFilters("DE", { country: "US" })).toEqual({ country: "DE" });
+  });
+
+  it("keeps the host's country when the patient has none", () => {
+    expect(baselineFilters(undefined, { country: "US" })).toEqual({ country: "US" });
+  });
+});
+
+describe("countActiveFilters over fields with no control", () => {
+  it("counts region and studyType, which only a host can set", () => {
+    // They have no control in the panel but api.ts still sends them. Left
+    // out of the count, the badge would read 0 while a filter was running,
+    // and Reset would leave it in place.
+    const base = baselineFilters("US");
+    expect(countActiveFilters({ country: "US", region: "NY" }, base)).toBe(1);
+    expect(countActiveFilters({ country: "US", studyType: "INTERVENTIONAL" }, base)).toBe(1);
+  });
+});

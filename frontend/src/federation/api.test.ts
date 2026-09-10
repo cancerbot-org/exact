@@ -50,9 +50,17 @@ describe("filterStateToParams", () => {
     });
   });
 
-  it("stringifies distance, including 0, and omits a falsy validatedOnly", () => {
-    expect(filterStateToParams({ distance: 0 })).toEqual({ distance: "0" });
+  it("stringifies a real distance and omits a falsy validatedOnly", () => {
+    expect(filterStateToParams({ distance: 50 })).toEqual({ distance: "50" });
     expect(filterStateToParams({ validatedOnly: false })).toEqual({});
+  });
+
+  it("omits a zero distance rather than sending a parameter that does nothing", () => {
+    // This used to assert `{distance: "0"}`. The backend gates on
+    // `if study_info.distance:`, so zero applies no radius at all — putting
+    // it on the wire made the request look filtered when it was not, and
+    // the panel's badge counted it.
+    expect(filterStateToParams({ distance: 0 })).toEqual({});
   });
 
   it("omits keys that are absent", () => {

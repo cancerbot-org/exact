@@ -94,14 +94,27 @@ function TrialMatchesInner({
     // out with the previous patient's country. `useRef` rather than state
     // because this is a "have I done this yet" marker, not rendered data.
     seededFor.current = patientIdentity;
-    setFilters((prev) => ({ ...prev, country: patientCountry }));
+    setFilters((prev) => ({
+      ...prev,
+      country: patientCountry,
+      // `trialType`'s options are disease-scoped, so a type picked for an MM
+      // patient is invisible in a BC patient's list — and `by_trial_type`
+      // has no leniency for a value that is not there, so the reader would
+      // get an empty result set from a control showing blank. CB carries the
+      // same guard for its purpose->type narrowing.
+      trialType: undefined,
+    }));
   }
 
-  const baseline = useMemo(() => baselineFilters(patientCountry), [patientCountry]);
+  const baseline = useMemo(
+    () => baselineFilters(patientCountry, initialFilters),
+    [patientCountry, initialFilters],
+  );
   const activeFilterCount = countActiveFilters(filters, baseline);
 
   const debouncedTitle = useDebounced(filters.searchTitle, 400);
   const debouncedTreatment = useDebounced(filters.searchTreatment, 400);
+  const debouncedSponsor = useDebounced(filters.sponsor, 400);
   const debouncedDistance = useDebounced(filters.distance, 400);
   const debouncedDistanceUnits = useDebounced(filters.distanceUnits, 400);
   const activeTabDef = TABS.find((t) => t.value === activeTab) ?? TABS[0];
@@ -110,6 +123,7 @@ function TrialMatchesInner({
       ...filters,
       searchTitle: debouncedTitle,
       searchTreatment: debouncedTreatment,
+      sponsor: debouncedSponsor,
       distance: debouncedDistance,
       distanceUnits: debouncedDistanceUnits,
       type: activeTabDef.param,
@@ -119,6 +133,7 @@ function TrialMatchesInner({
       filters,
       debouncedTitle,
       debouncedTreatment,
+      debouncedSponsor,
       debouncedDistance,
       debouncedDistanceUnits,
       activeTabDef.param,
