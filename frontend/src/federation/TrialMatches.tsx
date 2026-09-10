@@ -24,7 +24,7 @@ import { Pagination } from "./Pagination";
 import { SortControl } from "./SortControl";
 import { Tabs } from "./Tabs";
 import { hasInlinePatient } from "./api";
-import { baselineFilters, countActiveFilters } from "./filters";
+import { baselineFilters, countActiveFilters, countryFor } from "./filters";
 import {
   DEFAULT_SORT,
   PAGE_SIZE,
@@ -109,7 +109,11 @@ function TrialMatchesInner({
     seededFor.current = patientIdentity;
     setFilters((prev) => ({
       ...prev,
-      country: patientCountry,
+      // The same answer the baseline computes. Written separately, the two
+      // disagreed whenever the patient had no country and the host had
+      // supplied one: this cleared it, the baseline kept it, and the badge
+      // read "Filters (1)" for a country that was never sent.
+      country: countryFor(patientCountry, initialFilters),
       // Cleared when SWITCHING patients, not on the first seed: the options
       // are disease-scoped, so a type picked for an MM patient is invisible
       // in a BC patient's list and `by_trial_type` has no leniency for a

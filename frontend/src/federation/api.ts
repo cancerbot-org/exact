@@ -123,9 +123,8 @@ export async function fetchTrialDetail({
   filters,
 }: FetchTrialDetailArgs): Promise<TrialDetailResponse> {
   const params = filterStateToParams(filters);
-  const hasInlinePayload = patientInfo != null && Object.keys(patientInfo).length > 0;
 
-  if (hasInlinePayload) {
+  if (hasInlinePatient(patientInfo)) {
     const response = await apiClient.post<TrialDetailResponse>(
       `/trials/${trialId}/match/`,
       { patient_info: patientInfo },

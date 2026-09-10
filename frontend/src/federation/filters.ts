@@ -51,6 +51,22 @@ export type PanelField = (typeof PANEL_FIELDS)[number];
  *  clearing it would silently widen the search to every country rather than
  *  restoring the default. The baseline carries whatever the patient implies.
  */
+/** Which country the list should be scoped to.
+ *
+ *  The patient's own wins, because it is the more specific fact — but only
+ *  when there is one; otherwise a host-supplied default stands. Exported
+ *  because both the baseline and the component's seeding need the answer,
+ *  and when the two were written separately they disagreed: the seed set
+ *  `undefined` where the baseline kept the host's country, so the badge
+ *  claimed a filter that was not on the wire and Reset *changed* the
+ *  result set. */
+export function countryFor(
+  patientCountry: string | undefined,
+  initialFilters?: FilterState,
+): string | undefined {
+  return patientCountry ?? initialFilters?.country;
+}
+
 export function baselineFilters(
   patientCountry: string | undefined,
   initialFilters?: FilterState,
@@ -59,9 +75,8 @@ export function baselineFilters(
   // Reset throws away: a host that mounts the remote already scoped to a
   // register or a recruitment status means that scope to survive the button.
   const base: FilterState = { ...initialFilters };
-  // The patient's country wins over a host default, because it is the more
-  // specific fact — but only when there is one.
-  if (patientCountry) base.country = patientCountry;
+  const country = countryFor(patientCountry, initialFilters);
+  if (country) base.country = country;
   return base;
 }
 

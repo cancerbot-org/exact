@@ -4,6 +4,7 @@ import {
   DISTANCE_UNITS,
   baselineFilters,
   countActiveFilters,
+  countryFor,
   hasActiveFilters,
 } from "./filters";
 
@@ -137,5 +138,34 @@ describe("countActiveFilters over fields with no control", () => {
     const base = baselineFilters("US");
     expect(countActiveFilters({ country: "US", region: "NY" }, base)).toBe(1);
     expect(countActiveFilters({ country: "US", studyType: "INTERVENTIONAL" }, base)).toBe(1);
+  });
+});
+
+describe("countryFor", () => {
+  // The component seeds the filter with this and the baseline computes the
+  // badge from it. Written separately they drifted: the seed cleared a
+  // host-supplied country that the baseline kept, so the badge read
+  // "Filters (1)" for a value never sent, and Reset changed the results.
+  it("prefers the patient's own country", () => {
+    expect(countryFor("DE", { country: "US" })).toBe("DE");
+  });
+
+  it("falls back to the host's when the patient has none", () => {
+    expect(countryFor(undefined, { country: "US" })).toBe("US");
+  });
+
+  it("is undefined when neither says anything", () => {
+    expect(countryFor(undefined, {})).toBeUndefined();
+    expect(countryFor(undefined, undefined)).toBeUndefined();
+  });
+
+  it("is what the baseline uses, so the two cannot disagree", () => {
+    for (const patient of [undefined, "DE"]) {
+      for (const initial of [undefined, {}, { country: "US" }]) {
+        expect(baselineFilters(patient, initial).country).toBe(
+          countryFor(patient, initial),
+        );
+      }
+    }
   });
 });

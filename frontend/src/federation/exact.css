@@ -854,16 +854,6 @@
   cursor: not-allowed;
 }
 
-.exact-root .exact-filter--check {
-  flex-direction: row;
-  align-items: center;
-  gap: 0.5rem;
-  align-self: end;
-  height: 2.25rem;
-  font-size: 0.875rem;
-  color: var(--exact-color-text-muted);
-  cursor: pointer;
-}
 
 .exact-root .exact-filters__footer {
   display: flex;
