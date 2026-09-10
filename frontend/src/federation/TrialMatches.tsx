@@ -83,12 +83,17 @@ function TrialMatchesInner({
     const c = (patientInfo as Record<string, unknown> | null | undefined)?.["country"];
     return typeof c === "string" && c.trim() ? c.trim() : undefined;
   }, [patientInfo]);
-  const seededCountry = useRef<string | null | undefined>(undefined);
-  if (seededCountry.current !== patientCountry) {
+  // Keyed on WHICH PATIENT, not on the country value. Keyed on the value,
+  // a reader who overrode Patient A's country and then had the host swap to
+  // Patient B in the same country would keep searching A's override: the
+  // marker never changed, so the new patient was never seeded.
+  const patientIdentity = personId != null ? String(personId) : patientInfoKey;
+  const seededFor = useRef<string | null | undefined>(undefined);
+  if (seededFor.current !== patientIdentity) {
     // During render, not in an effect: an effect would let one request go
     // out with the previous patient's country. `useRef` rather than state
     // because this is a "have I done this yet" marker, not rendered data.
-    seededCountry.current = patientCountry;
+    seededFor.current = patientIdentity;
     setFilters((prev) => ({ ...prev, country: patientCountry }));
   }
 

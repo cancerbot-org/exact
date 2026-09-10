@@ -53,6 +53,15 @@ function isEmpty(value: unknown): boolean {
   return value === undefined || value === null || value === "" || value === false;
 }
 
+/** A distance of 0 is not a filter: the backend gates on
+ *  `if study_info.distance:`, so zero applies no limit. The control cannot
+ *  produce one, but a host can pass one through `initialFilters`, and a
+ *  badge counting it would claim a narrowing that never happened. */
+function isInactive(field: PanelField, value: unknown): boolean {
+  if (field === "distance") return isEmpty(value) || value === 0;
+  return isEmpty(value);
+}
+
 /** How many filters the user has actually changed — the number CB shows on
  *  its Filters button (its own count comes from the server, which knows the
  *  stored defaults; here the baseline stands in for them).
@@ -68,7 +77,7 @@ export function countActiveFilters(
   return PANEL_FIELDS.reduce((count, field) => {
     const value = filters[field];
     const base = baseline[field];
-    if (isEmpty(value) && isEmpty(base)) return count;
+    if (isInactive(field, value) && isInactive(field, base)) return count;
     return value === base ? count : count + 1;
   }, 0);
 }

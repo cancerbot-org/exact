@@ -73,6 +73,15 @@ describe("countActiveFilters", () => {
     ).toBe(0);
   });
 
+  it("does not count a zero distance", () => {
+    // The backend gates on `if study_info.distance:`, so zero applies no
+    // limit. The control cannot produce one, but a host can pass it through
+    // `initialFilters`, and the badge must not claim a narrowing that is
+    // not running.
+    expect(countActiveFilters({ country: "US", distance: 0 }, base)).toBe(0);
+    expect(countActiveFilters({ country: "US", distance: 25 }, base)).toBe(1);
+  });
+
   it("ignores distance units, which cannot filter on their own", () => {
     expect(countActiveFilters({ country: "US", distanceUnits: "miles" }, base)).toBe(0);
     expect(

@@ -164,14 +164,22 @@ export function FilterPanel({
           onChange={(v) => set({ phase: v })}
         />
 
-        <Field label="Last updated after">
-          <input
-            type="date"
-            className="exact-filter__input"
-            value={filters.lastUpdate ?? ""}
-            onChange={(e) => set({ lastUpdate: e.target.value || undefined })}
-          />
-        </Field>
+        {/* A years count, not a date — `by_date_since` runs the value
+            through `cast_str_to_int`, which takes digits only. CB renders
+            this as a date picker and PATCHes an ISO string, which that
+            helper drops on the floor, so CB's own control filters nothing
+            (#429). Offer what the backend actually implements. */}
+        <SelectFilter
+          label="Updated within"
+          value={filters.lastUpdate}
+          options={[
+            { value: "1", label: "the last year" },
+            { value: "2", label: "the last 2 years" },
+            { value: "3", label: "the last 3 years" },
+            { value: "5", label: "the last 5 years" },
+          ]}
+          onChange={(v) => set({ lastUpdate: v })}
+        />
 
         <SelectFilter
           label="Register"
@@ -196,9 +204,18 @@ export function FilterPanel({
               placeholder="Any"
               value={filters.distance ?? ""}
               onChange={(e) => {
-                const next = e.target.value ? Number(e.target.value) : undefined;
+                // `> 0`, not just "is a number": the backend gates on
+                // `if study_info.distance:`, so a zero radius applies no
+                // limit at all — while the badge would have counted it and
+                // the units select would have sat there enabled, both
+                // claiming a filter that is not running.
+                const parsed = Number(e.target.value);
+                const next =
+                  e.target.value && Number.isFinite(parsed) && parsed > 0
+                    ? parsed
+                    : undefined;
                 set({
-                  distance: Number.isFinite(next as number) ? next : undefined,
+                  distance: next,
                   // Units alone filter nothing, so they arrive with a
                   // distance and leave with it.
                   distanceUnits:
