@@ -6,6 +6,7 @@ import {
   countActiveFilters,
   countryFor,
   hasActiveFilters,
+  isActiveDistance,
 } from "./filters";
 
 describe("baselineFilters", () => {
@@ -74,12 +75,13 @@ describe("countActiveFilters", () => {
     ).toBe(0);
   });
 
-  it("does not count a zero distance", () => {
+  it("counts neither a zero nor a negative distance", () => {
     // The backend gates on `if study_info.distance:`, so zero applies no
     // limit. The control cannot produce one, but a host can pass it through
     // `initialFilters`, and the badge must not claim a narrowing that is
     // not running.
     expect(countActiveFilters({ country: "US", distance: 0 }, base)).toBe(0);
+    expect(countActiveFilters({ country: "US", distance: -1 }, base)).toBe(0);
     expect(countActiveFilters({ country: "US", distance: 25 }, base)).toBe(1);
   });
 
@@ -167,5 +169,31 @@ describe("countryFor", () => {
         );
       }
     }
+  });
+});
+
+describe("isActiveDistance", () => {
+  it("accepts only a positive, finite radius", () => {
+    expect(isActiveDistance(25)).toBe(true);
+    expect(isActiveDistance(0.5)).toBe(true);
+  });
+
+  it("rejects zero, which the backend reads as no limit at all", () => {
+    expect(isActiveDistance(0)).toBe(false);
+  });
+
+  it("rejects a negative radius, which is worse than none", () => {
+    // `if study_info.distance:` is true for -1, so it reaches the distance
+    // branch and builds a negative geospatial radius: an empty result set
+    // with nothing on screen to explain it.
+    expect(isActiveDistance(-1)).toBe(false);
+  });
+
+  it("rejects what is not a finite number", () => {
+    expect(isActiveDistance(undefined)).toBe(false);
+    expect(isActiveDistance(null)).toBe(false);
+    expect(isActiveDistance("25")).toBe(false);
+    expect(isActiveDistance(Number.NaN)).toBe(false);
+    expect(isActiveDistance(Number.POSITIVE_INFINITY)).toBe(false);
   });
 });

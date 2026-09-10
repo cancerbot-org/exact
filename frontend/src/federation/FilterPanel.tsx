@@ -10,7 +10,7 @@
 // without saying which. Single-select until that parser is ported — #428.
 import type { AxiosInstance } from "axios";
 
-import { DISTANCE_UNITS } from "./filters";
+import { DISTANCE_UNITS, isActiveDistance } from "./filters";
 import { useFormSettings } from "./hooks";
 import type { FilterState } from "./types";
 
@@ -203,10 +203,7 @@ export function FilterPanel({
                 // the units select would have sat there enabled, both
                 // claiming a filter that is not running.
                 const parsed = Number(e.target.value);
-                const next =
-                  e.target.value && Number.isFinite(parsed) && parsed > 0
-                    ? parsed
-                    : undefined;
+                const next = isActiveDistance(parsed) ? parsed : undefined;
                 set({
                   distance: next,
                   // Units alone filter nothing, so they arrive with a
@@ -222,7 +219,7 @@ export function FilterPanel({
               onChange={(e) =>
                 set({ distanceUnits: e.target.value as FilterState["distanceUnits"] })
               }
-              disabled={!filters.distance}
+              disabled={!isActiveDistance(filters.distance)}
             >
               {DISTANCE_UNITS.map((unit) => (
                 <option key={unit.value} value={unit.value}>

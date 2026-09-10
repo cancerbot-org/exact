@@ -230,3 +230,11 @@ describe("hasInlinePatient", () => {
     }
   });
 });
+
+describe("filterStateToParams — distance", () => {
+  it("omits a negative distance a host could pass in", () => {
+    // Truthiness is not enough: `-1` is truthy, reaches the backend's
+    // distance branch, and becomes a negative radius.
+    expect(filterStateToParams({ distance: -1 })).toEqual({});
+  });
+});

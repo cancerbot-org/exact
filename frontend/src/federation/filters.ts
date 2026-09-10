@@ -84,12 +84,20 @@ function isEmpty(value: unknown): boolean {
   return value === undefined || value === null || value === "" || value === false;
 }
 
-/** A distance of 0 is not a filter: the backend gates on
- *  `if study_info.distance:`, so zero applies no limit. The control cannot
- *  produce one, but a host can pass one through `initialFilters`, and a
- *  badge counting it would claim a narrowing that never happened. */
+/** Whether a distance is a radius the backend will actually honour.
+ *
+ *  Only a positive number is. Zero applies no limit — the backend gates on
+ *  `if study_info.distance:` — and a negative one is worse: it passes that
+ *  same truthiness check and becomes a negative geospatial radius, so the
+ *  search comes back empty for a reason nothing on screen explains. The
+ *  control cannot produce either, but the public `FilterState` permits both
+ *  through a host's `initialFilters`, so every consumer asks here. */
+export function isActiveDistance(value: unknown): boolean {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
 function isInactive(field: PanelField, value: unknown): boolean {
-  if (field === "distance") return isEmpty(value) || value === 0;
+  if (field === "distance") return !isActiveDistance(value);
   return isEmpty(value);
 }
 
