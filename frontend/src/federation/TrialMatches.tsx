@@ -23,6 +23,7 @@ import { TrialDetailPage } from "./TrialDetailPage";
 import { Pagination } from "./Pagination";
 import { SortControl } from "./SortControl";
 import { Tabs } from "./Tabs";
+import { hasInlinePatient } from "./api";
 import { baselineFilters, countActiveFilters } from "./filters";
 import {
   DEFAULT_SORT,
@@ -87,22 +88,37 @@ function TrialMatchesInner({
   // a reader who overrode Patient A's country and then had the host swap to
   // Patient B in the same country would keep searching A's override: the
   // marker never changed, so the new patient was never seeded.
-  const patientIdentity = personId != null ? String(personId) : patientInfoKey;
-  const seededFor = useRef<string | null | undefined>(undefined);
+  //
+  // `hasInlinePatient` decides which prop identifies the patient, because it
+  // is the same function the request uses to decide which one it sends. When
+  // this disagreed with that, a host updating the inline payload while
+  // keeping a person id carried the previous patient's filters into the new
+  // patient's search.
+  const patientIdentity = hasInlinePatient(patientInfo)
+    ? patientInfoKey
+    : personId != null
+      ? String(personId)
+      : null;
+  const UNSEEDED = "\u0000unseeded";
+  const seededFor = useRef<string | null>(UNSEEDED);
   if (seededFor.current !== patientIdentity) {
     // During render, not in an effect: an effect would let one request go
     // out with the previous patient's country. `useRef` rather than state
     // because this is a "have I done this yet" marker, not rendered data.
+    const isFirstSeed = seededFor.current === UNSEEDED;
     seededFor.current = patientIdentity;
     setFilters((prev) => ({
       ...prev,
       country: patientCountry,
-      // `trialType`'s options are disease-scoped, so a type picked for an MM
-      // patient is invisible in a BC patient's list — and `by_trial_type`
-      // has no leniency for a value that is not there, so the reader would
-      // get an empty result set from a control showing blank. CB carries the
-      // same guard for its purpose->type narrowing.
-      trialType: undefined,
+      // Cleared when SWITCHING patients, not on the first seed: the options
+      // are disease-scoped, so a type picked for an MM patient is invisible
+      // in a BC patient's list and `by_trial_type` has no leniency for a
+      // value that is not there — the reader would get an empty result set
+      // from a control rendering blank. CB carries the structurally
+      // identical guard for its purpose->type narrowing. On mount there is
+      // no previous patient, and clearing would throw away a `trialType` the
+      // host asked for in `initialFilters`.
+      ...(isFirstSeed ? {} : { trialType: undefined }),
     }));
   }
 

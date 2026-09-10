@@ -53,6 +53,20 @@ interface FetchTrialsArgs {
  *  and returns the per-tab counts. `list` orders by
  *  `-match_score, -posted_date, id` and ignores sorting entirely.
  */
+/** Whether an inline payload is the effective patient context.
+ *
+ *  Both `patientInfo` and `personId` can be supplied, and the inline payload
+ *  wins — server-side too, in `resolve_patient_info`. Exported because
+ *  `TrialMatches` has to agree about which patient it is looking at: when the
+ *  two disagreed, a host updating the inline payload while keeping a person
+ *  id kept the previous patient's filters.
+ *
+ *  Empty is not supplied: `{}` carries no patient and the server would fall
+ *  through to the `person_id` path, so this must too. */
+export function hasInlinePatient(patientInfo: PatientInfo | null | undefined): boolean {
+  return patientInfo != null && Object.keys(patientInfo).length > 0;
+}
+
 export async function fetchTrials({
   apiClient,
   patientInfo,
@@ -64,9 +78,7 @@ export async function fetchTrials({
   const params = filterStateToParams(filters);
   if (page != null && page > 1) params.page = String(page);
   if (limit != null) params.limit = String(limit);
-  const hasInlinePayload = patientInfo != null && Object.keys(patientInfo).length > 0;
-
-  if (hasInlinePayload) {
+  if (hasInlinePatient(patientInfo)) {
     const response = await apiClient.post<TrialsResponse>(
       "/trials/search/match/",
       { patient_info: patientInfo },
